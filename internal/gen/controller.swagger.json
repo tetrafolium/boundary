@@ -4171,8 +4171,11 @@
           "readOnly": true
         },
         "purpose": {
-          "type": "string",
-          "description": "The library's purpose for this target."
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The library's purpose for being on this target.  This is not populated when the Credential Library\nis attached to a credential because it is assumed the credential will provide it's own purpose."
         },
         "type": {
           "type": "string",
@@ -4268,6 +4271,10 @@
           "$ref": "#/definitions/controller.api.resources.targets.v1.CredentialLibrary",
           "description": "Output only. The library which generated this credential.",
           "readOnly": true
+        },
+        "purpose": {
+          "type": "string",
+          "description": "The library's purpose for this target."
         },
         "secret": {
           "type": "string",

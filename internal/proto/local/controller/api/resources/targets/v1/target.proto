@@ -31,8 +31,9 @@ message CredentialLibrary{
 	// Output only. The Credential Store to which this Credential Library belongs.
 	string credential_store_id = 40 [json_name="credential_store_id"];
 
-	// The library's purpose for this target.
-	string purpose = 50;
+	// The library's purpose for being on this target.  This is not populated when the Credential Library
+	// is attached to a credential because it is assumed the credential will provide it's own purpose.
+	repeated string purpose = 50;
 
 	// Output only. The type of the credential library.
 	string type = 60;
@@ -41,10 +42,13 @@ message CredentialLibrary{
 // A credential for a session.
 message SessionCredential {
 	// Output only. The library which generated this credential.
-	CredentialLibrary credential_library = 1;
+	CredentialLibrary credential_library = 10;
+
+	// The credential's purpose.
+	string purpose = 20;
 
 	// Output only. The secret of this credential base64 encoded.
-	string secret = 2;
+	string secret = 30;
 }
 
 // Target contains all fields related to a Target resource

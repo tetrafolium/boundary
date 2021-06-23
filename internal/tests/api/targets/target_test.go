@@ -63,7 +63,7 @@ func TestHostSetASD(t *testing.T) {
 }
 
 func defaultCredLibrary(r *credentiallibraries.CredentialLibrary) *targets.CredentialLibrary {
-	return &targets.CredentialLibrary{Id: r.Id, Purpose: "application", CredentialStoreId: r.CredentialStoreId}
+	return &targets.CredentialLibrary{Id: r.Id, Purpose: []string{"application"}, CredentialStoreId: r.CredentialStoreId}
 }
 
 func TestCredentialLibraryASD(t *testing.T) {

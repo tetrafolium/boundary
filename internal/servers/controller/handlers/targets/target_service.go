@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/golang/protobuf/ptypes/wrappers"
@@ -846,8 +847,10 @@ HostSetIterationLoop:
 				Description:       l.GetDescription(),
 				CredentialStoreId: l.GetStoreId(),
 				Type:              credential.SubtypeFromId(l.GetPublicId()).String(),
+				// Do not populate the Purpose field in the library since it is captured on the credential itself.
 			},
-			Secret: base64.StdEncoding.EncodeToString(jSecret),
+			Purpose: string(c.Purpose()),
+			Secret:  base64.StdEncoding.EncodeToString(jSecret),
 		})
 	}
 
@@ -1268,12 +1271,20 @@ func toProto(ctx context.Context, in target.Target, m []*target.TargetSet, l []*
 		}
 	}
 	if outputFields.Has(globals.CredentialLibrariesField) {
+		outLibs := make(map[string]*pb.CredentialLibrary)
 		for _, cl := range l {
-			out.CredentialLibraries = append(out.CredentialLibraries, &pb.CredentialLibrary{
+			l, ok := outLibs[cl.GetCredentialLibraryId()]
+			if ok {
+				l.Purpose = append(l.Purpose, cl.GetCredentialPurpose())
+				sort.Slice(l.Purpose, func(i, j int) bool {return l.Purpose[i] < l.Purpose[j]})
+				continue
+			}
+			l = &pb.CredentialLibrary{
 				Id:                cl.GetCredentialLibraryId(),
 				CredentialStoreId: cl.StoreId,
-				Purpose:           cl.GetCredentialPurpose(),
-			})
+				Purpose:           []string{cl.GetCredentialPurpose()},
+			}
+			out.CredentialLibraries = append(out.CredentialLibraries, l)
 		}
 	}
 	if outputFields.Has(globals.AttributesField) {

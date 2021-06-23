@@ -1385,7 +1385,7 @@ func TestAddTargetLibraries(t *testing.T) {
 
 			wantTemplate := &pb.CredentialLibrary{
 				CredentialStoreId: store.GetPublicId(),
-				Purpose:           string(credential.ApplicationPurpose),
+				Purpose:           []string{string(credential.ApplicationPurpose)},
 			}
 			for _, cl := range got.GetItem().GetCredentialLibraries() {
 				cl.Id = ""
@@ -1489,7 +1489,7 @@ func TestSetTargetLibraries(t *testing.T) {
 		return &pb.CredentialLibrary{
 			Id:                id,
 			CredentialStoreId: store.GetPublicId(),
-			Purpose:           string(credential.ApplicationPurpose),
+			Purpose:           []string{string(credential.ApplicationPurpose)},
 		}
 	}
 
@@ -1896,6 +1896,7 @@ func TestAuthorizeSession(t *testing.T) {
 				CredentialStoreId: store.GetPublicId(),
 				Type:              credential.VaultSubtype.String(),
 			},
+			Purpose: string(credential.ApplicationPurpose),
 		}},
 		// TODO: validate the contents of the authorization token is what is expected
 	}
