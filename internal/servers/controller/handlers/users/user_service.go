@@ -261,22 +261,6 @@ func (s Service) UpdateUser(ctx context.Context, req *pbs.UpdateUserRequest) (*p
 	return &pbs.UpdateUserResponse{Item: item}, nil
 }
 
-// DeleteUser implements the interface pbs.UserServiceServer.
-func (s Service) DeleteUser(ctx context.Context, req *pbs.DeleteUserRequest) (*pbs.DeleteUserResponse, error) {
-	if err := validateDeleteRequest(req); err != nil {
-		return nil, err
-	}
-	authResults := s.authResult(ctx, req.GetId(), action.Delete)
-	if authResults.Error != nil {
-		return nil, authResults.Error
-	}
-	_, err := s.deleteFromRepo(ctx, req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
 // AddUserAccounts implements the interface pbs.GroupServiceServer.
 func (s Service) AddUserAccounts(ctx context.Context, req *pbs.AddUserAccountsRequest) (*pbs.AddUserAccountsResponse, error) {
 	const op = "users.(Service).AddUserAccounts"
@@ -467,22 +451,6 @@ func (s Service) updateInRepo(ctx context.Context, orgId, id string, mask []stri
 		return nil, nil, handlers.NotFoundErrorf("User %q doesn't exist or incorrect version provided.", id)
 	}
 	return out, accts, nil
-}
-
-func (s Service) deleteFromRepo(ctx context.Context, id string) (bool, error) {
-	const op = "users.(Service).deleteFromRepo"
-	repo, err := s.repoFn()
-	if err != nil {
-		return false, err
-	}
-	rows, err := repo.DeleteUser(ctx, id)
-	if err != nil {
-		if errors.IsNotFoundError(err) {
-			return false, nil
-		}
-		return false, errors.Wrap(err, op, errors.WithMsg("unable to delete user"))
-	}
-	return rows > 0, nil
 }
 
 func (s Service) listFromRepo(ctx context.Context, scopeIds []string) ([]*iam.User, error) {
@@ -680,10 +648,6 @@ func validateCreateRequest(req *pbs.CreateUserRequest) error {
 
 func validateUpdateRequest(req *pbs.UpdateUserRequest) error {
 	return handlers.ValidateUpdateRequest(req, req.GetItem(), handlers.NoopValidatorFn, iam.UserPrefix)
-}
-
-func validateDeleteRequest(req *pbs.DeleteUserRequest) error {
-	return handlers.ValidateDeleteRequest(handlers.NoopValidatorFn, req, iam.UserPrefix)
 }
 
 func validateListRequest(req *pbs.ListUsersRequest) error {

@@ -260,22 +260,6 @@ func (s Service) UpdateGroup(ctx context.Context, req *pbs.UpdateGroupRequest) (
 	return &pbs.UpdateGroupResponse{Item: item}, nil
 }
 
-// DeleteGroup implements the interface pbs.GroupServiceServer.
-func (s Service) DeleteGroup(ctx context.Context, req *pbs.DeleteGroupRequest) (*pbs.DeleteGroupResponse, error) {
-	if err := validateDeleteRequest(req); err != nil {
-		return nil, err
-	}
-	authResults := s.authResult(ctx, req.GetId(), action.Delete)
-	if authResults.Error != nil {
-		return nil, authResults.Error
-	}
-	_, err := s.deleteFromRepo(ctx, req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
 // AddGroupMembers implements the interface pbs.GroupServiceServer.
 func (s Service) AddGroupMembers(ctx context.Context, req *pbs.AddGroupMembersRequest) (*pbs.AddGroupMembersResponse, error) {
 	const op = "groups.(Service).AddGroupMembers"
@@ -464,22 +448,6 @@ func (s Service) updateInRepo(ctx context.Context, scopeId, id string, mask []st
 		return nil, nil, handlers.NotFoundErrorf("Group %q doesn't exist or incorrect version provided.", id)
 	}
 	return out, m, nil
-}
-
-func (s Service) deleteFromRepo(ctx context.Context, id string) (bool, error) {
-	const op = "groups.(Service).deleteFromRepo"
-	repo, err := s.repoFn()
-	if err != nil {
-		return false, err
-	}
-	rows, err := repo.DeleteGroup(ctx, id)
-	if err != nil {
-		if errors.IsNotFoundError(err) {
-			return false, nil
-		}
-		return false, errors.Wrap(err, op, errors.WithMsg("unable to delete group"))
-	}
-	return rows > 0, nil
 }
 
 func (s Service) listFromRepo(ctx context.Context, scopeIds []string) ([]*iam.Group, error) {
@@ -671,10 +639,6 @@ func validateCreateRequest(req *pbs.CreateGroupRequest) error {
 
 func validateUpdateRequest(req *pbs.UpdateGroupRequest) error {
 	return handlers.ValidateUpdateRequest(req, req.GetItem(), handlers.NoopValidatorFn, iam.GroupPrefix)
-}
-
-func validateDeleteRequest(req *pbs.DeleteGroupRequest) error {
-	return handlers.ValidateDeleteRequest(handlers.NoopValidatorFn, req, iam.GroupPrefix)
 }
 
 func validateListRequest(req *pbs.ListGroupsRequest) error {

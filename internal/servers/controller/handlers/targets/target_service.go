@@ -320,22 +320,6 @@ func (s Service) UpdateTarget(ctx context.Context, req *pbs.UpdateTargetRequest)
 	return &pbs.UpdateTargetResponse{Item: item}, nil
 }
 
-// DeleteTarget implements the interface pbs.TargetServiceServer.
-func (s Service) DeleteTarget(ctx context.Context, req *pbs.DeleteTargetRequest) (*pbs.DeleteTargetResponse, error) {
-	if err := validateDeleteRequest(req); err != nil {
-		return nil, err
-	}
-	authResults := s.authResult(ctx, req.GetId(), action.Delete)
-	if authResults.Error != nil {
-		return nil, authResults.Error
-	}
-	_, err := s.deleteFromRepo(ctx, req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
 // AddTargetHostSets implements the interface pbs.TargetServiceServer.
 func (s Service) AddTargetHostSets(ctx context.Context, req *pbs.AddTargetHostSetsRequest) (*pbs.AddTargetHostSetsResponse, error) {
 	const op = "targets.(Service).AddTargetHostSets"
@@ -993,22 +977,6 @@ func (s Service) updateInRepo(ctx context.Context, scopeId, id string, mask []st
 	return out, hs, cl, nil
 }
 
-func (s Service) deleteFromRepo(ctx context.Context, id string) (bool, error) {
-	const op = "targets.(Service).deleteFromRepo"
-	repo, err := s.repoFn()
-	if err != nil {
-		return false, err
-	}
-	rows, err := repo.DeleteTarget(ctx, id)
-	if err != nil {
-		if errors.IsNotFoundError(err) {
-			return false, nil
-		}
-		return false, errors.Wrap(err, op, errors.WithMsg("unable to delete target"))
-	}
-	return rows > 0, nil
-}
-
 func (s Service) listFromRepo(ctx context.Context, scopeIds []string) ([]target.Target, error) {
 	repo, err := s.repoFn()
 	if err != nil {
@@ -1381,10 +1349,6 @@ func validateUpdateRequest(req *pbs.UpdateTargetRequest) error {
 		}
 		return badFields
 	}, target.TcpTargetPrefix)
-}
-
-func validateDeleteRequest(req *pbs.DeleteTargetRequest) error {
-	return handlers.ValidateDeleteRequest(handlers.NoopValidatorFn, req, target.TcpTargetPrefix)
 }
 
 func validateListRequest(req *pbs.ListTargetsRequest) error {

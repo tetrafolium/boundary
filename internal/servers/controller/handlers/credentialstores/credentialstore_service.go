@@ -309,22 +309,6 @@ func (s Service) UpdateCredentialStore(ctx context.Context, req *pbs.UpdateCrede
 	return &pbs.UpdateCredentialStoreResponse{Item: item}, nil
 }
 
-// DeleteCredentialStore implements the interface pbs.CredentialStoreServiceServer.
-func (s Service) DeleteCredentialStore(ctx context.Context, req *pbs.DeleteCredentialStoreRequest) (*pbs.DeleteCredentialStoreResponse, error) {
-	if err := validateDeleteRequest(req); err != nil {
-		return nil, err
-	}
-	authResults := s.authResult(ctx, req.GetId(), action.Delete)
-	if authResults.Error != nil {
-		return nil, authResults.Error
-	}
-	_, err := s.deleteFromRepo(ctx, req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
 func (s Service) listFromRepo(ctx context.Context, scopeIds []string) ([]*vault.CredentialStore, error) {
 	const op = "credentialstores.(Service).listFromRepo"
 	repo, err := s.repoFn()
@@ -398,22 +382,6 @@ func (s Service) updateInRepo(ctx context.Context, projId, id string, mask []str
 		return nil, handlers.NotFoundErrorf("Credential Store %q doesn't exist or incorrect version provided.", id)
 	}
 	return out, nil
-}
-
-func (s Service) deleteFromRepo(ctx context.Context, id string) (bool, error) {
-	const op = "credentialstores.(Service).deleteFromRepo"
-	repo, err := s.repoFn()
-	if err != nil {
-		return false, err
-	}
-	rows, err := repo.DeleteCredentialStore(ctx, id)
-	if err != nil {
-		if errors.IsNotFoundError(err) {
-			return false, nil
-		}
-		return false, errors.Wrap(err, op, errors.WithMsg("unable to delete credential store"))
-	}
-	return rows > 0, nil
 }
 
 func (s Service) authResult(ctx context.Context, id string, a action.Type) auth.VerifyResults {
@@ -690,10 +658,6 @@ func validateUpdateRequest(req *pbs.UpdateCredentialStoreRequest) error {
 		}
 		return badFields
 	}, vault.CredentialStorePrefix)
-}
-
-func validateDeleteRequest(req *pbs.DeleteCredentialStoreRequest) error {
-	return handlers.ValidateDeleteRequest(handlers.NoopValidatorFn, req, vault.CredentialStorePrefix)
 }
 
 func validateListRequest(req *pbs.ListCredentialStoresRequest) error {

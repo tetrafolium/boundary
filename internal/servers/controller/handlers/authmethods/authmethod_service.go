@@ -379,22 +379,6 @@ func (s Service) ChangeState(ctx context.Context, req *pbs.ChangeStateRequest) (
 	return &pbs.ChangeStateResponse{Item: item}, nil
 }
 
-// DeleteAuthMethod implements the interface pbs.AuthMethodServiceServer.
-func (s Service) DeleteAuthMethod(ctx context.Context, req *pbs.DeleteAuthMethodRequest) (*pbs.DeleteAuthMethodResponse, error) {
-	if err := validateDeleteRequest(req); err != nil {
-		return nil, err
-	}
-	authResults := s.authResult(ctx, req.GetId(), action.Delete)
-	if authResults.Error != nil {
-		return nil, authResults.Error
-	}
-	_, err := s.deleteFromRepo(ctx, authResults.Scope.GetId(), req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
 // Authenticate implements the interface pbs.AuthenticationServiceServer.
 func (s Service) Authenticate(ctx context.Context, req *pbs.AuthenticateRequest) (*pbs.AuthenticateResponse, error) {
 	const op = "authmethod_service.(Service).Authenticate"
@@ -576,36 +560,6 @@ func (s Service) updateInRepo(ctx context.Context, scopeId string, req *pbs.Upda
 	}
 
 	return am, dryRun, nil
-}
-
-func (s Service) deleteFromRepo(ctx context.Context, scopeId, id string) (bool, error) {
-	const op = "authmethods.(Service).deleteFromRepo"
-	var rows int
-	var dErr error
-	switch auth.SubtypeFromId(id) {
-	case auth.PasswordSubtype:
-		repo, err := s.pwRepoFn()
-		if err != nil {
-			return false, errors.Wrap(err, op)
-		}
-		rows, dErr = repo.DeleteAuthMethod(ctx, scopeId, id)
-
-	case auth.OidcSubtype:
-		repo, err := s.oidcRepoFn()
-		if err != nil {
-			return false, errors.Wrap(err, op)
-		}
-		rows, dErr = repo.DeleteAuthMethod(ctx, id)
-	}
-
-	if dErr != nil {
-		if errors.IsNotFoundError(dErr) {
-			return false, nil
-		}
-		return false, errors.Wrap(dErr, op, errors.WithMsg("unable to delete auth method"))
-	}
-
-	return rows > 0, nil
 }
 
 func (s Service) changeStateInRepo(ctx context.Context, req *pbs.ChangeStateRequest) (auth.AuthMethod, error) {
@@ -1077,14 +1031,6 @@ func validateUpdateRequest(req *pbs.UpdateAuthMethodRequest) error {
 		}
 		return badFields
 	}, password.AuthMethodPrefix, oidc.AuthMethodPrefix)
-}
-
-func validateDeleteRequest(req *pbs.DeleteAuthMethodRequest) error {
-	const op = "authmethod.validateDeleteRequest"
-	if req == nil {
-		return errors.New(errors.InvalidParameter, op, "Missing request")
-	}
-	return handlers.ValidateDeleteRequest(handlers.NoopValidatorFn, req, password.AuthMethodPrefix, oidc.AuthMethodPrefix)
 }
 
 func validateListRequest(req *pbs.ListAuthMethodsRequest) error {
