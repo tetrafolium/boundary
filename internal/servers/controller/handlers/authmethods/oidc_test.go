@@ -148,9 +148,6 @@ func TestList_FilterNonPublic(t *testing.T) {
 	atRepoFn := func() (*authtoken.Repository, error) {
 		return authtoken.NewRepository(rw, rw, kmsCache)
 	}
-	authTokenRepoFn := func() (*authtoken.Repository, error) {
-		return authtoken.NewRepository(rw, rw, kmsCache)
-	}
 	serversRepoFn := func() (*servers.Repository, error) {
 		return servers.NewRepository(rw, rw, kmsCache)
 	}
@@ -208,7 +205,7 @@ func TestList_FilterNonPublic(t *testing.T) {
 				return auth.NewVerifierContext(requests.NewRequestContext(context.Background()),
 					nil,
 					iamRepoFn,
-					authTokenRepoFn,
+					atRepoFn,
 					serversRepoFn,
 					kmsCache,
 					auth.RequestInfo{
@@ -431,6 +428,25 @@ func TestUpdate_OIDC(t *testing.T) {
 					AuthorizedCollectionActions: authorizedCollectionActions,
 				},
 			},
+		},
+		{
+			name: "invalid-issuer-port",
+			req: &pbs.UpdateAuthMethodRequest{
+				UpdateMask: &field_mask.FieldMask{
+					Paths: []string{"attributes.issuer"},
+				},
+				Item: &pb.AuthMethod{
+					Attributes: &structpb.Struct{
+						Fields: func() map[string]*structpb.Value {
+							f := defaultAttributeFields()
+							f["issuer"] = structpb.NewStringValue("http://localhost:7dddd")
+							f["disable_discovered_config_validation"] = structpb.NewBoolValue(true)
+							return f
+						}(),
+					},
+				},
+			},
+			err: handlers.ApiErrorWithCode(codes.InvalidArgument),
 		},
 		{
 			name: "No Update Mask",

@@ -4,7 +4,7 @@ package schema
 
 func init() {
 	migrationStates["postgres"] = migrationState{
-		binarySchemaVersion: 8001,
+		binarySchemaVersion: 12001,
 		upMigrations: map[int][]byte{
 			1: []byte(`
 create domain wt_public_id as text
@@ -12,7 +12,7 @@ check(
   length(trim(value)) > 10
 );
 comment on domain wt_public_id is
-'Random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+'Random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
 create domain wt_private_id as text
 not null
@@ -20,14 +20,14 @@ check(
   length(trim(value)) > 10
 );
 comment on domain wt_private_id is
-'Random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+'Random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
 create domain wt_scope_id as text
 check(
   length(trim(value)) > 10 or value = 'global'
 );
 comment on domain wt_scope_id is
-'"global" or random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+'"global" or random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
 create domain wt_user_id as text
 not null
@@ -35,7 +35,7 @@ check(
   length(trim(value)) > 10 or value = 'u_anon' or value = 'u_auth' or value = 'u_recovery'
 );
 comment on domain wt_scope_id is
-'"u_anon", "u_auth", or random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+'"u_anon", "u_auth", or random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
 create domain wt_role_id as text
 not null
@@ -43,7 +43,7 @@ check(
   length(trim(value)) > 10
 );
 comment on domain wt_scope_id is
-'Random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+'Random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
 create domain wt_timestamp as
   timestamp with time zone
@@ -966,6 +966,7 @@ $$ language plpgsql;
 
 -- iam_principle_role provides a consolidated view all principal roles assigned
 -- (user and group roles).
+-- REPLACED in 9/04_oidc_managed_group_principal_role
 create view iam_principal_role as
 select 
 	ur.create_time, 
@@ -1073,7 +1074,7 @@ before
 insert on iam_group_member_user
   for each row execute procedure recovery_user_not_allowed('member_id');
 
--- get_scoped_principal_id is used by the iam_group_member view as a convient
+-- get_scoped_member_id is used by the iam_group_member view as a convient
 -- way to create <scope_id>:<member_id> to reference members from
 -- other scopes than the group's scope. 
 create or replace function get_scoped_member_id(group_scope text, member_scope text, member_id text) returns text 
@@ -2975,6 +2976,9 @@ values
     ('connection limit'),
     ('canceled');
 
+-- Note: here, and in the session_connection table, we should add a trigger
+-- ensuring that if server_id goes to null, we mark connections as closed. See
+-- https://hashicorp.atlassian.net/browse/ICU-1495
   create table session (
     public_id wt_public_id primary key,
     -- the user of the session
@@ -3452,6 +3456,7 @@ values
   -- a endpoint for a session. The client initiates the connection to the worker
   -- and the worker initiates the connection to the endpoint.
   -- A session can have zero or more session connections.
+  -- Note: Updated to add server_id, server_type in 801
   create table session_connection (
     public_id wt_public_id primary key,
     session_id wt_public_id not null
@@ -4987,6 +4992,1136 @@ create trigger
 before insert on kms_oidc_key_version
 	for each row execute procedure kms_version_column('oidc_key_id');
 `),
+			10001: []byte(`
+alter table job_run
+    alter column server_id type text;
+alter table job_run
+    add constraint server_id_must_not_be_empty
+        check(length(trim(server_id)) > 0);
+`),
+			10002: []byte(`
+create function wt_is_sentinel(string text)
+    returns bool
+  as $$
+    select length(trim(leading u&'\fffe ' from string)) > 0 AND starts_with(string, u&'\fffe');
+  $$ language sql
+     immutable
+     returns null on null input;
+  comment on function wt_is_sentinel is
+    'wt_is_sentinel returns true if string is a sentinel value';
+
+  create domain wt_sentinel as text
+    constraint wt_sentinel_not_valid
+      check(
+        wt_is_sentinel(value)
+        or
+        length(trim(u&'\fffe ' from value)) > 0
+      );
+  comment on domain wt_sentinel is
+  'A non-empty string with a Unicode prefix of U+FFFE to indicate it is a sentinel value';
+
+  create function wt_to_sentinel(string text)
+    returns text
+  as $$
+    select concat(u&'\fffe', trim(ltrim(string, u&'\fffe ')));
+  $$ language sql
+     immutable
+     returns null on null input;
+  comment on function wt_to_sentinel is
+    'wt_to_sentinel takes string and returns it as a wt_sentinel';
+`),
+			10003: []byte(`
+-- credential_store
+  create table credential_store (
+    public_id wt_public_id primary key,
+    scope_id wt_scope_id not null
+      constraint iam_scope_fkey
+        references iam_scope (public_id)
+        on delete cascade
+        on update cascade,
+
+    -- The order of columns is important for performance. See:
+    -- https://dba.stackexchange.com/questions/58970/enforcing-constraints-two-tables-away/58972#58972
+    -- https://dba.stackexchange.com/questions/27481/is-a-composite-index-also-good-for-queries-on-the-first-field
+    constraint credential_store_scope_id_public_id_uq
+      unique(scope_id, public_id)
+  );
+  comment on table credential_store is
+    'credential_store is a base table for the credential store type. '
+    'Each row is owned by a single scope and maps 1-to-1 to a row in one of the credential store subtype tables.';
+
+  create trigger immutable_columns before update on credential_store
+    for each row execute procedure immutable_columns('public_id', 'scope_id');
+
+  -- insert_credential_store_subtype() is a before insert trigger
+  -- function for subtypes of credential_store
+  create function insert_credential_store_subtype()
+    returns trigger
+  as $$
+  begin
+    insert into credential_store
+      (public_id, scope_id)
+    values
+      (new.public_id, new.scope_id);
+    return new;
+  end;
+  $$ language plpgsql;
+
+  -- delete_credential_store_subtype() is an after delete trigger
+  -- function for subtypes of credential_store
+  create function delete_credential_store_subtype()
+    returns trigger
+  as $$
+  begin
+    delete from credential_store
+    where public_id = old.public_id;
+    return null; -- result is ignored since this is an after trigger
+  end;
+  $$ language plpgsql;
+
+
+  -- credential_library
+  create table credential_library (
+    public_id wt_public_id primary key,
+    store_id wt_public_id not null
+      constraint credential_store_fkey
+        references credential_store (public_id)
+        on delete cascade
+        on update cascade,
+    constraint credential_library_store_id_public_id_uq
+      unique(store_id, public_id)
+  );
+  comment on table credential_library is
+    'credential_library is a base table for the credential library type and a child table of credential_store. '
+    'Each row maps 1-to-1 to a row in one of the credential library subtype tables.';
+
+  create trigger immutable_columns before update on credential_library
+    for each row execute procedure immutable_columns('public_id', 'store_id');
+
+  -- insert_credential_library_subtype() is a before insert trigger
+  -- function for subtypes of credential_library
+  create function insert_credential_library_subtype()
+    returns trigger
+  as $$
+  begin
+    insert into credential_library
+      (public_id, store_id)
+    values
+      (new.public_id, new.store_id);
+    return new;
+  end;
+  $$ language plpgsql;
+
+  -- delete_credential_library_subtype() is an after delete trigger
+  -- function for subtypes of credential_library
+  create function delete_credential_library_subtype()
+    returns trigger
+  as $$
+  begin
+    delete from credential_library
+    where public_id = old.public_id;
+    return null; -- result is ignored since this is an after trigger
+  end;
+  $$ language plpgsql;
+
+  -- credential
+  create table credential (
+    public_id wt_public_id primary key
+  );
+  comment on table credential is
+    'credential is a base table for the credential type. ';
+
+  create trigger immutable_columns before update on credential
+    for each row execute procedure immutable_columns('public_id');
+
+  -- insert_credential_subtype() is a before insert trigger
+  -- function for subtypes of credential
+  create function insert_credential_subtype()
+    returns trigger
+  as $$
+  begin
+    insert into credential
+      (public_id)
+    values
+      (new.public_id);
+    return new;
+  end;
+  $$ language plpgsql;
+
+  -- delete_credential_subtype() is an after delete trigger
+  -- function for subtypes of credential
+  create function delete_credential_subtype()
+    returns trigger
+  as $$
+  begin
+    delete from credential
+    where public_id = old.public_id;
+    return null; -- result is ignored since this is an after trigger
+  end;
+  $$ language plpgsql;
+
+  -- credential_static
+  create table credential_static (
+    public_id wt_public_id primary key
+      constraint credential_fkey
+        references credential (public_id)
+        on delete cascade
+        on update cascade,
+    store_id wt_public_id not null
+      constraint credential_store_fkey
+        references credential_store (public_id)
+        on delete cascade
+        on update cascade,
+    constraint credential_static_store_id_public_id_uq
+      unique(store_id, public_id)
+  );
+  comment on table credential_static is
+    'credential_static is a base table for the credential static type. '
+    'It is a credential subtype and a child table of credential_store. ';
+
+  create trigger immutable_columns before update on credential_static
+    for each row execute procedure immutable_columns('public_id', 'store_id');
+
+  create trigger insert_credential_subtype before insert on credential_static
+    for each row execute procedure insert_credential_subtype();
+
+  create trigger delete_credential_subtype after delete on credential_static
+    for each row execute procedure delete_credential_subtype();
+
+  -- insert_credential_static_subtype() is a before insert trigger
+  -- function for subtypes of credential_static
+  create function insert_credential_static_subtype()
+    returns trigger
+  as $$
+  begin
+    insert into credential_static
+      (public_id, store_id)
+    values
+      (new.public_id, new.store_id);
+    return new;
+  end;
+  $$ language plpgsql;
+
+  -- delete_credential_static_subtype() is an after delete trigger
+  -- function for subtypes of credential_static
+  create function delete_credential_static_subtype()
+    returns trigger
+  as $$
+  begin
+    delete from credential_static
+    where public_id = old.public_id;
+    return null; -- result is ignored since this is an after trigger
+  end;
+  $$ language plpgsql;
+
+  -- credential_dynamic
+  create table credential_dynamic (
+    public_id wt_public_id primary key
+      constraint credential_fkey
+        references credential (public_id)
+        on delete cascade
+        on update cascade,
+    library_id wt_public_id not null
+      constraint credential_library_fkey
+        references credential_library (public_id)
+        on delete cascade
+        on update cascade,
+    constraint credential_dynamic_library_id_public_id_uq
+      unique(library_id, public_id)
+  );
+  comment on table credential_dynamic is
+    'credential_dynamic is a base table for the credential dynamic type. '
+    'It is a credential subtype and a child table of credential_library. ';
+
+  create trigger immutable_columns before update on credential_dynamic
+    for each row execute procedure immutable_columns('public_id', 'library_id');
+
+  create trigger insert_credential_subtype before insert on credential_dynamic
+    for each row execute procedure insert_credential_subtype();
+
+  create trigger delete_credential_subtype after delete on credential_dynamic
+    for each row execute procedure delete_credential_subtype();
+
+  -- insert_credential_dynamic_subtype() is a before insert trigger
+  -- function for subtypes of credential_dynamic
+  create function insert_credential_dynamic_subtype()
+    returns trigger
+  as $$
+  begin
+    insert into credential_dynamic
+      (public_id, library_id)
+    values
+      (new.public_id, new.library_id);
+    return new;
+  end;
+  $$ language plpgsql;
+
+  -- delete_credential_dynamic_subtype() is an after delete trigger
+  -- function for subtypes of credential_dynamic
+  create function delete_credential_dynamic_subtype()
+    returns trigger
+  as $$
+  begin
+    delete from credential_dynamic
+    where public_id = old.public_id;
+    return null; -- result is ignored since this is an after trigger
+  end;
+  $$ language plpgsql;
+
+  create table credential_purpose_enm (
+    name text primary key
+      constraint only_predefined_credential_purposes_allowed
+      check (
+        name in (
+          'application',
+          'ingress',
+          'egress'
+        )
+      )
+  );
+  comment on table credential_purpose_enm is
+    'credential_purpose_enm is an enumeration table for credential purposes. '
+    'It contains rows for representing the application, egress, and ingress credential purposes.';
+
+  insert into credential_purpose_enm (name)
+  values
+    ('application'),
+    ('ingress'),
+    ('egress');
+`),
+			10004: []byte(`
+create table credential_vault_store (
+    public_id wt_public_id primary key,
+    scope_id wt_scope_id not null
+      constraint iam_scope_fkey
+        references iam_scope (public_id)
+        on delete cascade
+        on update cascade,
+    name wt_name,
+    description wt_description,
+    create_time wt_timestamp,
+    update_time wt_timestamp,
+    -- delete_time is set to indicate the row has been soft deleted
+    delete_time timestamp with time zone,
+    version wt_version,
+    vault_address wt_url not null,
+    -- the remaining text columns can be null but if they are not null, they
+    -- cannot contain an empty string
+    namespace text
+      constraint namespace_must_not_be_empty
+        check(length(trim(namespace)) > 0),
+    ca_cert bytea -- PEM encoded certificate bundle
+      constraint ca_cert_must_not_be_empty
+        check(length(ca_cert) > 0),
+    tls_server_name text
+      constraint tls_server_name_must_not_be_empty
+        check(length(trim(tls_server_name)) > 0),
+    tls_skip_verify boolean default false not null,
+    constraint credential_store_fkey
+      foreign key (scope_id, public_id)
+      references credential_store (scope_id, public_id)
+      on delete cascade
+      on update cascade,
+    constraint credential_vault_store_scope_id_name_uq
+      unique(scope_id, name)
+  );
+  comment on table credential_vault_store is
+    'credential_vault_store is a table where each row is a resource that represents a vault credential store. '
+    'It is a credential_store subtype.';
+
+  create trigger update_version_column after update on credential_vault_store
+    for each row execute procedure update_version_column();
+
+  create trigger update_time_column before update on credential_vault_store
+    for each row execute procedure update_time_column();
+
+  create trigger default_create_time_column before insert on credential_vault_store
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on credential_vault_store
+    for each row execute procedure immutable_columns('public_id', 'scope_id','create_time');
+
+  create trigger insert_credential_store_subtype before insert on credential_vault_store
+    for each row execute procedure insert_credential_store_subtype();
+
+  create trigger delete_credential_store_subtype after delete on credential_vault_store
+    for each row execute procedure delete_credential_store_subtype();
+
+  -- before_soft_delete_credential_vault_store is a before update trigger for
+  -- the credential_vault_store table that makes the delete_time column a
+  -- set once column. Once the delete_time column is set to a value other than
+  -- null, it cannot be changed. If the current delete_time of a row is not null
+  -- and an update contains a value for delete_time different from the current
+  -- value, this trigger will raise an error with error code 23602 which is a
+  -- class 23 integrity constraint violation: set_once_violation.
+  create function before_soft_delete_credential_vault_store()
+    returns trigger
+  as $$
+  begin
+    if new.delete_time is distinct from old.delete_time then
+      if old.delete_time is not null then
+        raise exception 'set_once_violation: %.%', tg_table_name, 'delete_time' using
+          errcode = '23602',
+          schema = tg_table_schema,
+          table = tg_table_name,
+          column = 'delete_time';
+      end if;
+    end if;
+    return new;
+  end;
+  $$ language plpgsql;
+
+  create trigger before_soft_delete_credential_vault_store before update on credential_vault_store
+    for each row execute procedure before_soft_delete_credential_vault_store();
+
+  -- after_soft_delete_credential_vault_store is an after update trigger for the
+  -- credential_vault_store table that performs cleanup actions when a
+  -- credential store is soft deleted. A credential store is considered "soft
+  -- deleted" if the delete_time for the row is updated from null to not null.
+  --
+  -- When a credential store is soft deleted, this trigger:
+  --  * marks any active Vault tokens owned by the credential store for revocation
+  --  * deletes any credential library owned by the credential store
+  create function after_soft_delete_credential_vault_store()
+    returns trigger
+  as $$
+  begin
+    if new.delete_time is distinct from old.delete_time then
+      if old.delete_time is null then
+
+        -- mark current and maintaining tokens as revoke
+        update credential_vault_token
+           set status   = 'revoke'
+         where store_id = new.public_id
+           and status in ('current', 'maintaining');
+
+        -- delete the store's libraries
+        delete
+          from credential_vault_library
+         where store_id = new.public_id;
+
+      end if;
+    end if;
+    return null;
+  end;
+  $$ language plpgsql;
+
+  create trigger after_soft_delete_credential_vault_store after update on credential_vault_store
+    for each row execute procedure after_soft_delete_credential_vault_store();
+
+  create table credential_vault_token_status_enm (
+    name text primary key
+      constraint only_predefined_token_statuses_allowed
+      check (
+        name in (
+          'current',
+          'maintaining',
+          'revoke',
+          'revoked',
+          'expired'
+        )
+      )
+  );
+  comment on table credential_vault_token_status_enm is
+    'credential_vault_token_status_enm is an enumeration table for the status of vault tokens. '
+    'It contains rows for representing the current, maintaining, revoke, revoked, and expired statuses.';
+
+  insert into credential_vault_token_status_enm (name)
+  values
+    ('current'),
+    ('maintaining'),
+    ('revoke'),
+    ('revoked'),
+    ('expired');
+
+  create table credential_vault_token (
+    token_hmac bytea primary key, -- hmac-sha256(token, key(blake2b-256(token_accessor))
+    token bytea not null, -- encrypted value
+    store_id wt_public_id not null
+      constraint credential_vault_store_fkey
+        references credential_vault_store (public_id)
+        on delete cascade
+        on update cascade,
+    create_time wt_timestamp,
+    update_time wt_timestamp,
+    last_renewal_time timestamp with time zone not null,
+    expiration_time timestamp with time zone not null
+      constraint last_renewal_time_must_be_before_expiration_time
+        check(last_renewal_time < expiration_time),
+    key_id text not null
+      constraint kms_database_key_version_fkey
+        references kms_database_key_version (private_id)
+        on delete restrict
+        on update cascade,
+    status text not null
+      constraint credential_vault_token_status_enm_fkey
+        references credential_vault_token_status_enm (name)
+        on delete restrict
+        on update cascade
+  );
+  comment on table credential_vault_token is
+    'credential_vault_token is a table where each row contains a Vault token for one Vault credential store. '
+    'A credential store can have only one vault token with the status of current';
+  comment on column credential_vault_token.token_hmac is
+    'token_hmac contains the hmac-sha256 value of the token. '
+    'The hmac key is the blake2b-256 value of the token accessor.';
+
+  -- https://www.postgresql.org/docs/current/indexes-partial.html
+  create unique index credential_vault_token_current_status_constraint
+    on credential_vault_token (store_id)
+    where status = 'current';
+
+  create index credential_vault_token_expiration_time_ix
+    on credential_vault_token(expiration_time);
+  comment on index credential_vault_token_expiration_time_ix is
+    'the credential_vault_token_expiration_time_ix is used by the token renewal job';
+
+  create trigger update_time_column before update on credential_vault_token
+    for each row execute procedure update_time_column();
+
+  create trigger default_create_time_column before insert on credential_vault_token
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on credential_vault_token
+    for each row execute procedure immutable_columns('token_hmac', 'token', 'store_id','create_time');
+
+  -- insert_credential_vault_token() is a before insert trigger
+  -- function for credential_vault_token that changes the status of the current
+  -- token to 'maintaining'
+  create function insert_credential_vault_token()
+    returns trigger
+  as $$
+  begin
+    update credential_vault_token
+       set status   = 'maintaining'
+     where store_id = new.store_id
+       and status   = 'current';
+    return new;
+  end;
+  $$ language plpgsql;
+
+  create trigger insert_credential_vault_token before insert on credential_vault_token
+    for each row execute procedure insert_credential_vault_token();
+
+  create table credential_vault_client_certificate (
+    store_id wt_public_id primary key
+      constraint credential_vault_store_fkey
+        references credential_vault_store (public_id)
+        on delete cascade
+        on update cascade,
+    certificate bytea not null -- PEM encoded certificate
+      constraint certificate_must_not_be_empty
+        check(length(certificate) > 0),
+    certificate_key bytea not null -- encrypted PEM encoded private key for certificate
+      constraint certificate_key_must_not_be_empty
+        check(length(certificate_key) > 0),
+    certificate_key_hmac bytea not null
+        constraint certificate_key_hmac_must_not_be_empty
+            check(length(certificate_key_hmac) > 0),
+    key_id text not null
+      constraint kms_database_key_version_fkey
+        references kms_database_key_version (private_id)
+        on delete restrict
+        on update cascade
+  );
+  comment on table credential_vault_client_certificate is
+    'credential_vault_client_certificate is a table where each row contains a client certificate that a credential_vault_store uses for mTLS when connecting to Vault. '
+    'A credential_vault_store can have 0 or 1 client certificates.';
+
+  create trigger immutable_columns before update on credential_vault_client_certificate
+    for each row execute procedure immutable_columns('store_id');
+
+  create table credential_vault_http_method_enm (
+    name text primary key
+      constraint only_predefined_http_methods_allowed
+      check (
+        name in (
+          'GET',
+          'POST'
+        )
+      )
+  );
+  comment on table credential_vault_http_method_enm is
+    'credential_vault_http_method_enm is an enumeration table for the http method used by a vault library when communicating with vault. '
+    'It contains rows for representing the HTTP GET and the HTTP POST methods.';
+
+  insert into credential_vault_http_method_enm (name)
+  values
+    ('GET'),
+    ('POST');
+
+  create table credential_vault_library (
+    public_id wt_public_id primary key,
+    store_id wt_public_id not null
+      constraint credential_vault_store_fkey
+        references credential_vault_store (public_id)
+        on delete cascade
+        on update cascade,
+    name wt_name,
+    description wt_description,
+    create_time wt_timestamp,
+    update_time wt_timestamp,
+    version wt_version,
+    vault_path text not null
+      constraint vault_path_must_not_be_empty
+        check(length(trim(vault_path)) > 0),
+    http_method text not null
+      constraint credential_vault_http_method_enm_fkey
+        references credential_vault_http_method_enm (name)
+        on delete restrict
+        on update cascade,
+    http_request_body bytea
+      constraint http_request_body_only_allowed_with_post_method
+        check(
+          http_request_body is null
+          or
+          (
+            http_method = 'POST'
+            and
+            length(http_request_body) > 0
+          )
+        ),
+    constraint credential_vault_library_store_id_name_uq
+      unique(store_id, name),
+    constraint credential_library_fkey
+      foreign key (store_id, public_id)
+      references credential_library (store_id, public_id)
+      on delete cascade
+      on update cascade,
+    constraint credential_vault_library_store_id_public_id_uq
+      unique(store_id, public_id)
+  );
+  comment on table credential_vault_library is
+    'credential_vault_library is a table where each row is a resource that represents a vault credential library. '
+    'It is a credential_library subtype and a child table of credential_vault_store.';
+
+  create trigger update_version_column after update on credential_vault_library
+    for each row execute procedure update_version_column();
+
+  create trigger update_time_column before update on credential_vault_library
+    for each row execute procedure update_time_column();
+
+  create trigger default_create_time_column before insert on credential_vault_library
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on credential_vault_library
+    for each row execute procedure immutable_columns('public_id', 'store_id','create_time');
+
+  create trigger insert_credential_library_subtype before insert on credential_vault_library
+    for each row execute procedure insert_credential_library_subtype();
+
+  create trigger delete_credential_library_subtype after delete on credential_vault_library
+    for each row execute procedure delete_credential_library_subtype();
+
+
+  -- before_insert_credential_vault_library is a before insert trigger for
+  -- the credential_vault_library table that prevents a library from being
+  -- inserted for a soft deleted credential store.
+  create function before_insert_credential_vault_library()
+    returns trigger
+  as $$
+  declare
+    delete_time_val timestamp with time zone;
+  begin
+    select delete_time into delete_time_val
+      from credential_vault_store
+     where public_id = new.store_id;
+
+    if delete_time_val is not null then
+      raise exception 'foreign_key_violation: %.%', tg_table_name, 'store_id' using
+        errcode = '23503',
+        schema = tg_table_schema,
+        table = tg_table_name,
+        column = 'store_id';
+    end if;
+    return new;
+  end;
+  $$ language plpgsql;
+
+  create trigger before_insert_credential_vault_library before insert on credential_vault_library
+    for each row execute procedure before_insert_credential_vault_library();
+
+  create table credential_vault_credential_status_enm (
+    name text primary key
+      constraint only_predefined_credential_statuses_allowed
+      check (
+        name in (
+          'active',
+          'revoke',
+          'revoked',
+          'expired',
+          'unknown'
+        )
+      )
+  );
+  comment on table credential_vault_credential_status_enm is
+    'credential_vault_credential_status_enm is an enumeration table for the status of vault credentials. '
+    'It contains rows for representing the active, revoke, revoked, expired, and unknown statuses.';
+
+  insert into credential_vault_credential_status_enm (name)
+  values
+    ('active'),
+    ('revoke'),
+    ('revoked'),
+    ('expired'),
+    ('unknown');
+
+  create table credential_vault_credential (
+    public_id wt_public_id primary key,
+    library_id wt_public_id
+      constraint credential_vault_library_fkey
+        references credential_vault_library (public_id)
+        on delete set null
+        on update cascade,
+    session_id wt_public_id
+      constraint session_fkey
+        references session (public_id)
+        on delete set null
+        on update cascade,
+    token_hmac bytea not null
+      constraint credential_vault_token_fkey
+        references credential_vault_token (token_hmac)
+        on delete cascade
+        on update cascade,
+    create_time wt_timestamp,
+    update_time wt_timestamp,
+    version wt_version,
+    external_id wt_sentinel not null,
+    last_renewal_time timestamp with time zone not null,
+    expiration_time timestamp with time zone not null
+      constraint last_renewal_time_must_be_before_expiration_time
+        check(last_renewal_time < expiration_time),
+    is_renewable boolean not null,
+    status text not null
+      constraint credential_vault_credential_status_enm_fkey
+        references credential_vault_credential_status_enm (name)
+        on delete restrict
+        on update cascade,
+    constraint credential_dynamic_fkey
+      foreign key (library_id, public_id)
+      references credential_dynamic (library_id, public_id)
+      on delete cascade
+      on update cascade,
+    constraint credential_vault_credential_library_id_public_id_uq
+      unique(library_id, public_id)
+  );
+  comment on table credential_vault_credential is
+    'credential_vault_credential is a table where each row contains the lease information for a single Vault secret retrieved from a vault credential library for a session.';
+
+  create trigger update_version_column after update on credential_vault_credential
+    for each row execute procedure update_version_column();
+
+  create trigger update_time_column before update on credential_vault_credential
+    for each row execute procedure update_time_column();
+
+  -- update_credential_status_column() is a before update trigger function for
+  -- credential_vault_credential that changes the status of the credential to 'revoke' if
+  -- the session_id is updated to null
+  create function update_credential_status_column()
+      returns trigger
+  as $$
+  begin
+    if new.session_id is distinct from old.session_id then
+      if new.session_id is null and old.status = 'active' then
+        new.status = 'revoke';
+      end if;
+    end if;
+    return new;
+  end;
+  $$ language plpgsql;
+
+  create trigger update_credential_status_column before update on credential_vault_credential
+    for each row execute procedure update_credential_status_column();
+
+  -- not_null_columns() will make the column names not null which are passed as
+  -- parameters when the trigger is created. It raises error code 23502 which is a
+  -- class 23 integrity constraint violation: not null column
+  create function not_null_columns()
+    returns trigger
+  as $$
+  declare
+      col_name  text;
+      new_value text;
+  begin
+      foreach col_name in array tg_argv loop
+              execute format('SELECT $1.%I', col_name) into new_value using new;
+              if new_value is null then
+                  raise exception 'not null column: %.%', tg_table_name, col_name using
+                      errcode = '23502',
+                      schema = tg_table_schema,
+                      table = tg_table_name,
+                      column = col_name;
+              end if;
+          end loop;
+      return new;
+  end;
+  $$ language plpgsql;
+
+  comment on function not_null_columns() is
+    'function used in before insert triggers to make columns not null on insert, but are allowed be updated to null';
+
+  create trigger not_null_columns before insert on credential_vault_credential
+      for each row execute procedure not_null_columns('library_id', 'session_id');
+
+  create trigger default_create_time_column before insert on credential_vault_credential
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on credential_vault_credential
+    for each row execute procedure immutable_columns('external_id', 'create_time');
+
+  create trigger insert_credential_dynamic_subtype before insert on credential_vault_credential
+    for each row execute procedure insert_credential_dynamic_subtype();
+
+  create trigger delete_credential_dynamic_subtype after delete on credential_vault_credential
+    for each row execute procedure delete_credential_dynamic_subtype();
+
+  create index credential_vault_credential_expiration_time_ix
+    on credential_vault_credential(expiration_time);
+  comment on index credential_vault_credential_expiration_time_ix is
+    'the credential_vault_credential_expiration_time_ix is used by the credential renewal job';
+
+  insert into oplog_ticket (name, version)
+  values
+    ('credential_vault_store', 1),
+    ('credential_vault_library', 1),
+    ('credential_vault_credential', 1) ;
+
+     create view credential_vault_store_private as
+     with
+     active_tokens as (
+        select token_hmac,
+               token, -- encrypted
+               store_id,
+               create_time,
+               update_time,
+               last_renewal_time,
+               expiration_time,
+               -- renewal time is the midpoint between the last renewal time and the expiration time
+               last_renewal_time + (expiration_time - last_renewal_time) / 2 as renewal_time,
+               key_id,
+               status
+          from credential_vault_token
+         where status in ('current', 'maintaining', 'revoke')
+     )
+     select store.public_id           as public_id,
+            store.scope_id            as scope_id,
+            store.name                as name,
+            store.description         as description,
+            store.create_time         as create_time,
+            store.update_time         as update_time,
+            store.delete_time         as delete_time,
+            store.version             as version,
+            store.vault_address       as vault_address,
+            store.namespace           as namespace,
+            store.ca_cert             as ca_cert,
+            store.tls_server_name     as tls_server_name,
+            store.tls_skip_verify     as tls_skip_verify,
+            store.public_id           as store_id,
+            token.token_hmac          as token_hmac,
+            token.token               as ct_token, -- encrypted
+            token.create_time         as token_create_time,
+            token.update_time         as token_update_time,
+            token.last_renewal_time   as token_last_renewal_time,
+            token.expiration_time     as token_expiration_time,
+            token.renewal_time        as token_renewal_time,
+            token.key_id              as token_key_id,
+            token.status              as token_status,
+            cert.certificate          as client_cert,
+            cert.certificate_key      as ct_client_key, -- encrypted
+            cert.certificate_key_hmac as client_cert_key_hmac,
+            cert.key_id               as client_key_id
+       from credential_vault_store store
+  left join active_tokens token
+         on store.public_id = token.store_id
+  left join credential_vault_client_certificate cert
+         on store.public_id = cert.store_id;
+  comment on view credential_vault_store_private is
+    'credential_vault_store_private is a view where each row contains a credential store and the credential store''s data needed to connect to Vault. '
+    'The view returns a separate row for each current, maintaining and revoke token; maintaining tokens should only be used for token/credential renewal and revocation. '
+    'Each row may contain encrypted data. This view should not be used to retrieve data which will be returned external to boundary.';
+
+     create view credential_vault_store_public as
+     select public_id,
+            scope_id,
+            name,
+            description,
+            create_time,
+            update_time,
+            version,
+            vault_address,
+            namespace,
+            ca_cert,
+            tls_server_name,
+            tls_skip_verify,
+            token_hmac,
+            token_create_time,
+            token_update_time,
+            token_last_renewal_time,
+            token_expiration_time,
+            client_cert,
+            client_cert_key_hmac
+       from credential_vault_store_private
+      where token_status = 'current'
+        and delete_time is null;
+  comment on view credential_vault_store_public is
+    'credential_vault_store_public is a view where each row contains a credential store. '
+    'No encrypted data is returned. This view can be used to retrieve data which will be returned external to boundary.';
+
+     create view credential_vault_library_private as
+     select library.public_id         as public_id,
+            library.store_id          as store_id,
+            library.name              as name,
+            library.description       as description,
+            library.create_time       as create_time,
+            library.update_time       as update_time,
+            library.version           as version,
+            library.vault_path        as vault_path,
+            library.http_method       as http_method,
+            library.http_request_body as http_request_body,
+            store.scope_id            as scope_id,
+            store.vault_address       as vault_address,
+            store.namespace           as namespace,
+            store.ca_cert             as ca_cert,
+            store.tls_server_name     as tls_server_name,
+            store.tls_skip_verify     as tls_skip_verify,
+            store.token_hmac          as token_hmac,
+            store.ct_token            as ct_token, -- encrypted
+            store.token_key_id        as token_key_id,
+            store.client_cert         as client_cert,
+            store.ct_client_key       as ct_client_key, -- encrypted
+            store.client_key_id       as client_key_id
+       from credential_vault_library library
+       join credential_vault_store_private store
+         on library.store_id = store.public_id
+        and store.token_status = 'current';
+  comment on view credential_vault_library_private is
+    'credential_vault_library_private is a view where each row contains a credential library and the credential library''s data needed to connect to Vault. '
+    'Each row may contain encrypted data. This view should not be used to retrieve data which will be returned external to boundary.';
+
+     create view credential_vault_credential_private as
+     select credential.public_id         as public_id,
+            credential.library_id        as library_id,
+            credential.session_id        as session_id,
+            credential.create_time       as create_time,
+            credential.update_time       as update_time,
+            credential.version           as version,
+            credential.external_id       as external_id,
+            credential.last_renewal_time as last_renewal_time,
+            credential.expiration_time   as expiration_time,
+            credential.is_renewable      as is_renewable,
+            credential.status            as status,
+            credential.last_renewal_time + (credential.expiration_time - credential.last_renewal_time) / 2 as renewal_time,
+            token.token_hmac             as token_hmac,
+            token.token                  as ct_token, -- encrypted
+            token.create_time            as token_create_time,
+            token.update_time            as token_update_time,
+            token.last_renewal_time      as token_last_renewal_time,
+            token.expiration_time        as token_expiration_time,
+            token.key_id                 as token_key_id,
+            token.status                 as token_status,
+            store.scope_id               as scope_id,
+            store.vault_address          as vault_address,
+            store.namespace              as namespace,
+            store.ca_cert                as ca_cert,
+            store.tls_server_name        as tls_server_name,
+            store.tls_skip_verify        as tls_skip_verify,
+            cert.certificate             as client_cert,
+            cert.certificate_key         as ct_client_key, -- encrypted
+            cert.certificate_key_hmac    as client_cert_key_hmac,
+            cert.key_id                  as client_key_id
+       from credential_vault_credential credential
+       join credential_vault_token token
+         on credential.token_hmac = token.token_hmac
+       join credential_vault_store store
+         on token.store_id = store.public_id
+  left join credential_vault_client_certificate cert
+         on store.public_id = cert.store_id
+      where credential.expiration_time != 'infinity'::date;
+  comment on view credential_vault_credential_private is
+    'credential_vault_credential_private is a view where each row contains a credential, '
+    'the vault token used to issue the credential, and the credential store data needed to connect to Vault. '
+    'Each row may contain encrypted data. This view should not be used to retrieve data which will be returned external to boundary.';
+`),
+			10005: []byte(`
+create table target_credential_library (
+    target_id wt_public_id not null
+      constraint target_fkey
+        references target (public_id)
+        on delete cascade
+        on update cascade,
+    credential_library_id wt_public_id not null
+      constraint credential_library_fkey
+        references credential_library (public_id)
+        on delete cascade
+        on update cascade,
+    credential_purpose text not null
+      constraint credential_purpose_enm_fkey
+        references credential_purpose_enm (name)
+        on delete restrict
+        on update cascade,
+    create_time wt_timestamp,
+    primary key(target_id, credential_library_id, credential_purpose)
+  );
+  comment on table target_credential_library is
+    'target_credential_library is a join table between the target and credential_library tables. '
+    'It also contains the credential purpose the relationship represents.';
+
+  create trigger default_create_time_column before insert on target_credential_library
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on target_credential_library
+    for each row execute procedure immutable_columns('target_id', 'credential_library_id', 'credential_purpose', 'create_time');
+
+  -- target_library provides the store id along with the other data stored in
+  -- target_credential_library
+  create view target_library
+  as
+  select
+    tcl.target_id,
+    tcl.credential_library_id,
+    tcl.credential_purpose,
+    cl.store_id
+  from
+    target_credential_library tcl,
+    credential_library cl
+  where
+    cl.public_id = tcl.credential_library_id;
+`),
+			10006: []byte(`
+create table session_credential_dynamic (
+    session_id wt_public_id not null
+      constraint session_fkey
+        references session (public_id)
+        on delete cascade
+        on update cascade,
+    library_id wt_public_id not null
+      constraint credential_library_fkey
+        references credential_library (public_id)
+        on delete cascade
+        on update cascade,
+    credential_id wt_public_id
+      constraint credential_dynamic_fkey
+        references credential_dynamic (public_id)
+        on delete cascade
+        on update cascade,
+    credential_purpose text not null
+      constraint credential_purpose_fkey
+        references credential_purpose_enm (name)
+        on delete restrict
+        on update cascade,
+    primary key(session_id, library_id, credential_purpose),
+    create_time wt_timestamp,
+    constraint session_credential_dynamic_credential_id_uq
+      unique(credential_id)
+  );
+  comment on table session_credential_dynamic is
+    'session_credential_dynamic is a join table between the session and dynamic credential tables. '
+    'It also contains the credential purpose the relationship represents.';
+
+  create trigger default_create_time_column before insert on session_credential_dynamic
+    for each row execute procedure default_create_time();
+
+  create trigger immutable_columns before update on session_credential_dynamic
+    for each row execute procedure immutable_columns('session_id', 'library_id', 'credential_purpose', 'create_time');
+
+  -- revoke_credentials revokes any active credentials for a session when the
+  -- session enters the canceling or terminated states.
+  create function revoke_credentials()
+    returns trigger
+  as $$
+  begin
+    if new.state in ('canceling', 'terminated') then
+      update credential_vault_credential
+         set status = 'revoke'
+       where session_id = new.session_id
+         and status = 'active';
+    end if;
+    return new;
+  end;
+  $$ language plpgsql;
+  create trigger revoke_credentials after insert on session_state
+    for each row execute procedure revoke_credentials();
+`),
+			10007: []byte(`
+update credential_vault_credential
+   set external_id = concat(external_id, u&'\ffff')
+ where wt_is_sentinel(external_id)
+   and not starts_with(reverse(external_id), u&'\ffff');
+
+alter domain wt_sentinel
+    drop constraint wt_sentinel_not_valid;
+
+drop function wt_is_sentinel;
+
+create function wt_is_sentinel(string text)
+    returns bool
+as $$
+select starts_with(string, u&'\fffe') and starts_with(reverse(string), u&'\ffff');
+$$ language sql
+    immutable
+    returns null on null input;
+comment on function wt_is_sentinel is
+    'wt_is_sentinel returns true if string is a sentinel value';
+
+alter domain wt_sentinel
+    add constraint wt_sentinel_not_valid
+        check(
+                wt_is_sentinel(value)
+                or
+                length(trim(trailing u&'\ffff' from trim(leading u&'\fffe ' from value))) > 0
+            );
+
+comment on domain wt_sentinel is
+    'A non-empty string with a Unicode prefix of U+FFFE and suffix of U+FFFF to indicate it is a sentinel value';
+
+drop function wt_to_sentinel; -- wt_to_sentinel is not needed, dropping and not re-creating
+`),
+			11001: []byte(`
+create table server_type_enm (
+  name text primary key
+    constraint only_predefined_server_types_allowed
+      check (
+        name in (
+          'controller',
+          'worker'
+        )
+      )
+);
+comment on table server_type_enm is
+  'server_type_enm is an enumeration table for server types. '
+  'It contains rows for representing servers as either a controller or worker.';
+
+insert into server_type_enm (name) values
+  ('controller'),
+  ('worker');
+
+alter table server
+    add constraint server_type_enm_fkey
+      foreign key (type) references server_type_enm(name)
+        on update cascade
+        on delete restrict;
+`),
+			12001: []byte(`
+create function wt_sub_seconds(sec integer, ts timestamp with time zone)
+        returns timestamp with time zone
+    as $$
+    select ts - sec * '1 second'::interval;
+    $$ language sql
+        stable
+        returns null on null input;
+    comment on function wt_add_seconds is
+        'wt_sub_seconds returns ts - sec.';
+
+    create function wt_sub_seconds_from_now(sec integer)
+        returns timestamp with time zone
+    as $$
+    select wt_sub_seconds(sec, current_timestamp);
+    $$ language sql
+        stable
+        returns null on null input;
+    comment on function wt_add_seconds_to_now is
+        'wt_sub_seconds_from_now returns current_timestamp - sec.';
+`),
 			2001: []byte(`
 -- log_migration entries represent logs generated during migrations
 create table log_migration(
@@ -6207,7 +7342,7 @@ create domain wt_plugin_id as text
                     length(trim(value)) > 10 or value = 'pi_system'
             );
     comment on domain wt_plugin_id is
-        '"pi_system", or random ID generated with github.com/hashicorp/vault/sdk/helper/base62';
+        '"pi_system", or random ID generated with github.com/hashicorp/go-secure-stdlib/base62';
 
     create table plugin (
         public_id wt_plugin_id primary key
@@ -6348,39 +7483,293 @@ create table job (
 	  select job_plugin_id, job_name, next_scheduled_run from final;
 `),
 			8001: []byte(`
--- Invalidate auth tokens when the oidc auth tokens mutate in certain ways
-create or replace function
-    delete_auth_tokens_for_auth_method(a_method_id wt_public_id) returns void as $$
-begin
-    delete from auth_token
-    where auth_account_id in
-          (select public_id
-           from auth_account
-           where auth_method_id = a_method_id);
-end;
-$$ language plpgsql;
+alter table session_connection
+  add column server_id text;
 
+-- Note: here, and in the session table, we should add a trigger ensuring that
+-- if server_id goes to null, we mark connections as closed. See
+-- https://hashicorp.atlassian.net/browse/ICU-1495
+alter table session_connection
+  add constraint server_fkey
+    foreign key (server_id)
+    references server (private_id)
+    on delete set null
+    on update cascade;
+
+-- We now populate the connection information from existing session information
+update session_connection sc
+set
+  server_id = s.server_id
+from
+  session s
+where
+  sc.session_id = s.public_id;
+`),
+			9001: []byte(`
+-- The base abstract table
+create table auth_managed_group (
+  public_id wt_public_id
+    primary key,
+  auth_method_id wt_public_id
+    not null,
+  -- Ensure that if the auth method is deleted (which will also happen if the
+  -- scope is deleted) this is deleted too
+  constraint auth_method_fkey
+    foreign key (auth_method_id) -- fk1
+      references auth_method(public_id)
+      on delete cascade
+      on update cascade,
+  constraint auth_managed_group_auth_method_id_public_id_uq
+    unique(auth_method_id, public_id)
+);
+comment on table auth_managed_group is
+'auth_managed_group is the abstract base table for managed groups.';
+
+-- Define the immutable fields of auth_managed_group
+create trigger 
+  immutable_columns
+before
+update on auth_managed_group
+  for each row execute procedure immutable_columns('public_id', 'auth_method_id');
+
+-- Function to insert into the base table when values are inserted into a
+-- concrete type table. This happens before inserts so the foreign keys in the
+-- concrete type will be valid.
 create or replace function
-    invalidate_oidc_auth_tokens_on_auth_method_update()
-    returns trigger
+  insert_managed_group_subtype()
+  returns trigger
 as $$
 begin
-    if new.issuer is distinct from old.issuer then
-        execute delete_auth_tokens_for_auth_method(new.public_id);
-    end if;
-    if new.client_id is distinct from old.client_id then
-        execute delete_auth_tokens_for_auth_method(new.public_id);
-    end if;
-    return new;
+
+  insert into auth_managed_group
+    (public_id, auth_method_id)
+  values
+    (new.public_id, new.auth_method_id);
+
+  return new;
+
 end;
 $$ language plpgsql;
 
+-- delete_managed_group_subtype() is an after delete trigger
+-- function for subtypes of managed_group
+create or replace function delete_managed_group_subtype()
+  returns trigger
+as $$
+begin
+  delete from auth_managed_group
+  where public_id = old.public_id;
+  return null; -- result is ignored since this is an after trigger
+end;
+$$ language plpgsql;
+`),
+			9002: []byte(`
+create table auth_oidc_managed_group (
+  public_id wt_public_id
+    primary key,
+  auth_method_id wt_public_id
+    not null,
+  name wt_name,
+  description wt_description,
+  create_time wt_timestamp,
+  update_time wt_timestamp,
+  version wt_version,
+  filter wt_bexprfilter
+    not null,
+  -- Ensure that this managed group relates to an oidc auth method, as opposed
+  -- to other types
+  constraint auth_oidc_method_fkey
+    foreign key (auth_method_id) -- fk1
+      references auth_oidc_method (public_id)
+      on delete cascade
+      on update cascade,
+  -- Ensure it relates to an abstract managed group
+  constraint auth_managed_group_fkey
+    foreign key (auth_method_id, public_id) -- fk2
+      references auth_managed_group (auth_method_id, public_id)
+      on delete cascade
+      on update cascade,
+  constraint auth_oidc_managed_group_auth_method_id_name_uq
+    unique(auth_method_id, name)
+);
+comment on table auth_oidc_managed_group is
+'auth_oidc_managed_group entries are subtypes of auth_managed_group and represent an oidc managed group.';
+
+-- Define the immutable fields of auth_oidc_managed_group
+create trigger 
+  immutable_columns
+before
+update on auth_oidc_managed_group
+  for each row execute procedure immutable_columns('public_id', 'auth_method_id', 'create_time');
+
+-- Populate create time on insert
+create trigger 
+  default_create_time_column
+before
+insert on auth_oidc_managed_group
+  for each row execute procedure default_create_time();
+
+-- Generate update time on update
+create trigger
+  update_time_column
+before
+update on auth_oidc_managed_group
+  for each row execute procedure update_time_column();
+
+-- Update version when something changes
+create trigger 
+  update_version_column
+after
+update on auth_oidc_managed_group
+  for each row execute procedure update_version_column();
+
+-- Add into the base table when inserting into the concrete table
+create trigger
+  insert_managed_group_subtype
+before insert on auth_oidc_managed_group
+  for each row execute procedure insert_managed_group_subtype();
+
+-- Ensure that deletions in the oidc subtype result in deletions to the base
+-- table.
+create trigger 
+  delete_managed_group_subtype
+after
+delete on auth_oidc_managed_group
+  for each row execute procedure delete_managed_group_subtype();
+
+-- The tickets for oplog are the subtypes not the base types because no updates
+-- are done to any values in the base types.
+insert into oplog_ticket
+  (name, version)
+values
+  ('auth_oidc_managed_group', 1);
+`),
+			9003: []byte(`
+-- Mappings of account to oidc managed groups. This is a non-abstract table with
+-- a view (below) so that it is a natural aggregate for the oplog (also below).
+create table auth_oidc_managed_group_member_account (
+  create_time wt_timestamp,
+  managed_group_id wt_public_id
+    references auth_oidc_managed_group(public_id)
+    on delete cascade
+    on update cascade,
+  member_id wt_public_id
+    references auth_oidc_account(public_id)
+    on delete cascade
+    on update cascade,
+  primary key (managed_group_id, member_id)
+);
+comment on table auth_oidc_managed_group_member_account is
+'auth_oidc_managed_group_member_account is the join table for managed oidc groups and accounts.';
+
+-- auth_immutable_managed_oidc_group_member_account() ensures that group members are immutable. 
+create or replace function
+  auth_immutable_managed_oidc_group_member_account()
+  returns trigger
+as $$
+begin
+    raise exception 'managed oidc group members are immutable';
+end;
+$$ language plpgsql;
+
+create trigger 
+  default_create_time_column
+before
+insert on auth_oidc_managed_group_member_account
+  for each row execute procedure default_create_time();
 
 create trigger
-    invalidate_oidc_auth_tokens_on_auth_method_update
+  auth_immutable_managed_oidc_group_member_account
 before
-update on auth_oidc_method
-  for each row execute procedure invalidate_oidc_auth_tokens_on_auth_method_update();
+update on auth_oidc_managed_group_member_account
+  for each row execute procedure auth_immutable_managed_oidc_group_member_account();
+
+-- Initially create the view with just oidc; eventually we can replace this view
+-- to union with other subtype tables.
+create view auth_managed_group_member_account as
+select
+  oidc.create_time,
+  oidc.managed_group_id,
+  oidc.member_id
+from
+  auth_oidc_managed_group_member_account oidc;
+`),
+			9004: []byte(`
+-- iam_managed_group_role contains roles that have been assigned to managed
+-- groups. Managed groups can be from any scope. The rows in this table must be
+-- immutable after insert, which will be ensured with a before update trigger
+-- using iam_immutable_role_principal().
+create table iam_managed_group_role (
+  create_time wt_timestamp,
+  role_id wt_role_id
+    references iam_role(public_id)
+    on delete cascade
+    on update cascade,
+  principal_id wt_public_id 
+    references auth_managed_group(public_id)
+    on delete cascade
+    on update cascade,
+  primary key (role_id, principal_id)
+  );
+
+create trigger immutable_role_principal
+before update on iam_managed_group_role
+  for each row execute procedure iam_immutable_role_principal();
+
+create trigger default_create_time_column
+before insert on iam_managed_group_role
+  for each row execute procedure default_create_time();
+
+-- iam_principal_role provides a consolidated view all principal roles assigned
+-- (user and group roles).
+create or replace view iam_principal_role as
+select
+	ur.create_time,
+	ur.principal_id,
+	ur.role_id,
+	u.scope_id as principal_scope_id,
+	r.scope_id as role_scope_id,
+	get_scoped_principal_id(r.scope_id, u.scope_id, ur.principal_id) as scoped_principal_id,
+	'user' as type
+from
+	iam_user_role ur,
+	iam_role r,
+	iam_user u
+where
+	ur.role_id = r.public_id and
+	u.public_id = ur.principal_id
+union
+select
+	gr.create_time,
+	gr.principal_id,
+	gr.role_id,
+	g.scope_id as principal_scope_id,
+	r.scope_id as role_scope_id,
+	get_scoped_principal_id(r.scope_id, g.scope_id, gr.principal_id) as scoped_principal_id,
+	'group' as type
+from
+	iam_group_role gr,
+	iam_role r,
+	iam_group g
+where
+	gr.role_id = r.public_id and
+	g.public_id = gr.principal_id
+union
+select
+	mgr.create_time,
+	mgr.principal_id,
+	mgr.role_id,
+	(select scope_id from auth_method am where am.public_id = amg.auth_method_id) as principal_scope_id,
+	r.scope_id as role_scope_id,
+	get_scoped_principal_id(r.scope_id, (select scope_id from auth_method am where am.public_id = amg.auth_method_id), mgr.principal_id) as scoped_principal_id,
+	'managed group' as type
+from
+	iam_managed_group_role mgr,
+	iam_role r,
+	auth_managed_group amg
+where
+	mgr.role_id = r.public_id and
+	amg.public_id = mgr.principal_id;
 `),
 		},
 	}

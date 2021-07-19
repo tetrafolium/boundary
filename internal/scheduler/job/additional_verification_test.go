@@ -49,7 +49,7 @@ func TestJobWorkflow(t *testing.T) {
 	require.NoError(err)
 	assert.Nil(newRuns)
 
-	run, err = repo.CompleteRun(context.Background(), run.PrivateId, time.Hour)
+	run, err = repo.CompleteRun(context.Background(), run.PrivateId, time.Hour, 0, 0)
 	require.NoError(err)
 	assert.Equal(Completed.string(), run.Status)
 
@@ -63,7 +63,7 @@ func TestJobWorkflow(t *testing.T) {
 	assert.Nil(newRuns)
 
 	// Update job next run to time in past
-	job, err = repo.UpdateJobNextRun(context.Background(), job.Name, 0)
+	job, err = repo.UpdateJobNextRunInAtLeast(context.Background(), job.Name, 0)
 	require.NoError(err)
 
 	// Now that next scheduled time is in past, a request for work should return a Run
@@ -80,7 +80,7 @@ func TestJobWorkflow(t *testing.T) {
 	require.NoError(err)
 	assert.Nil(newRuns)
 
-	newRun, err = repo.FailRun(context.Background(), newRun.PrivateId)
+	newRun, err = repo.FailRun(context.Background(), newRun.PrivateId, 0, 0)
 	require.NoError(err)
 	assert.Equal(Failed.string(), newRun.Status)
 

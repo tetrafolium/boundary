@@ -11,6 +11,7 @@ import (
 	pbs "github.com/hashicorp/boundary/internal/gen/controller/api/services"
 	"github.com/hashicorp/boundary/internal/iam"
 	"github.com/hashicorp/boundary/internal/iam/store"
+	"github.com/hashicorp/boundary/internal/intglobals"
 	"github.com/hashicorp/boundary/internal/perms"
 	"github.com/hashicorp/boundary/internal/requests"
 	"github.com/hashicorp/boundary/internal/servers/controller/common"
@@ -19,7 +20,7 @@ import (
 	"github.com/hashicorp/boundary/internal/types/action"
 	"github.com/hashicorp/boundary/internal/types/resource"
 	"github.com/hashicorp/boundary/internal/types/scope"
-	"github.com/hashicorp/boundary/sdk/strutil"
+	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -52,7 +53,7 @@ var (
 
 func init() {
 	var err error
-	if maskManager, err = handlers.NewMaskManager(&store.Role{}, &pb.Role{}); err != nil {
+	if maskManager, err = handlers.NewMaskManager(handlers.MaskDestination{&store.Role{}}, handlers.MaskSource{&pb.Role{}}); err != nil {
 		panic(err)
 	}
 }
@@ -967,8 +968,10 @@ func validateAddRolePrincipalsRequest(req *pbs.AddRolePrincipalsRequest) error {
 		badFields["principal_ids"] = "Must be non-empty."
 	}
 	for _, id := range req.GetPrincipalIds() {
-		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) && !handlers.ValidId(handlers.Id(id), iam.UserPrefix) {
-			badFields["principal_ids"] = "Must only have valid group and/or user ids."
+		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) &&
+			!handlers.ValidId(handlers.Id(id), iam.UserPrefix) &&
+			!handlers.ValidId(handlers.Id(id), intglobals.OidcManagedGroupPrefix) {
+			badFields["principal_ids"] = "Must only have valid user, group, and/or managed group ids."
 			break
 		}
 		if id == "u_recovery" {
@@ -991,8 +994,10 @@ func validateSetRolePrincipalsRequest(req *pbs.SetRolePrincipalsRequest) error {
 		badFields["version"] = "Required field."
 	}
 	for _, id := range req.GetPrincipalIds() {
-		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) && !handlers.ValidId(handlers.Id(id), iam.UserPrefix) {
-			badFields["principal_ids"] = "Must only have valid group and/or user ids."
+		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) &&
+			!handlers.ValidId(handlers.Id(id), iam.UserPrefix) &&
+			!handlers.ValidId(handlers.Id(id), intglobals.OidcManagedGroupPrefix) {
+			badFields["principal_ids"] = "Must only have valid user, group, and/or managed group ids."
 			break
 		}
 		if id == "u_recovery" {
@@ -1018,8 +1023,10 @@ func validateRemoveRolePrincipalsRequest(req *pbs.RemoveRolePrincipalsRequest) e
 		badFields["principal_ids"] = "Must be non-empty."
 	}
 	for _, id := range req.GetPrincipalIds() {
-		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) && !handlers.ValidId(handlers.Id(id), iam.UserPrefix) {
-			badFields["principal_ids"] = "Must only have valid group and/or user ids."
+		if !handlers.ValidId(handlers.Id(id), iam.GroupPrefix) &&
+			!handlers.ValidId(handlers.Id(id), iam.UserPrefix) &&
+			!handlers.ValidId(handlers.Id(id), intglobals.OidcManagedGroupPrefix) {
+			badFields["principal_ids"] = "Must only have valid user, group, and/or managed group ids."
 			break
 		}
 	}

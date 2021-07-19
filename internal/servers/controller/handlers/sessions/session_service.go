@@ -209,6 +209,8 @@ func (s Service) CancelSession(ctx context.Context, req *pbs.CancelSessionReques
 		return nil, authResults.Error
 	}
 
+	// We'll verify it's not already canceled, but after checking auth so as not
+	// to leak that information.
 	ses, err := s.getFromRepo(ctx, req.GetId())
 	if err != nil {
 		return nil, err
@@ -235,9 +237,19 @@ func (s Service) CancelSession(ctx context.Context, req *pbs.CancelSessionReques
 		}
 	}
 
-	ses, err = s.cancelInRepo(ctx, req.GetId(), req.GetVersion())
-	if err != nil {
-		return nil, err
+	var skipCancel bool
+	for _, state := range ses.States {
+		switch state.Status {
+		case session.StatusCanceling, session.StatusTerminated:
+			skipCancel = true
+		}
+	}
+
+	if !skipCancel {
+		ses, err = s.cancelInRepo(ctx, req.GetId(), req.GetVersion())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	outputOpts := make([]handlers.Option, 0, 3)

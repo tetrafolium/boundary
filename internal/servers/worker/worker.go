@@ -12,8 +12,8 @@ import (
 	"github.com/hashicorp/boundary/internal/cmd/config"
 	"github.com/hashicorp/boundary/internal/servers"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/vault/sdk/helper/base62"
-	"github.com/hashicorp/vault/sdk/helper/mlock"
+	"github.com/hashicorp/go-secure-stdlib/base62"
+	"github.com/hashicorp/go-secure-stdlib/mlock"
 	ua "go.uber.org/atomic"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
@@ -29,6 +29,7 @@ type Worker struct {
 
 	controllerStatusConn *atomic.Value
 	lastStatusSuccess    *atomic.Value
+	workerStartTime      time.Time
 
 	controllerResolver *atomic.Value
 
@@ -60,6 +61,10 @@ func New(conf *Config) (*Worker, error) {
 	w.lastStatusSuccess.Store((*LastStatusInformation)(nil))
 	w.controllerResolver.Store((*manual.Resolver)(nil))
 
+	if conf.RawConfig.Worker == nil {
+		conf.RawConfig.Worker = new(config.Worker)
+	}
+
 	w.ParseAndStoreTags(conf.RawConfig.Worker.Tags)
 
 	if conf.SecureRandomReader == nil {
@@ -67,9 +72,6 @@ func New(conf *Config) (*Worker, error) {
 	}
 
 	var err error
-	if conf.RawConfig.Worker == nil {
-		conf.RawConfig.Worker = new(config.Worker)
-	}
 	if conf.RawConfig.Worker.Name == "" {
 		if conf.RawConfig.Worker.Name, err = base62.Random(10); err != nil {
 			return nil, fmt.Errorf("error auto-generating worker name: %w", err)
@@ -115,6 +117,7 @@ func (w *Worker) Start() error {
 	}
 
 	w.startStatusTicking(w.baseContext)
+	w.workerStartTime = time.Now()
 	w.started.Store(true)
 
 	return nil
@@ -137,6 +140,11 @@ func (w *Worker) Shutdown(skipListeners bool) error {
 		}
 	}
 	w.started.Store(false)
+	if w.conf.Eventer != nil {
+		if err := w.conf.Eventer.FlushNodes(context.Background()); err != nil {
+			return fmt.Errorf("error flushing worker eventer nodes: %w", err)
+		}
+	}
 	return nil
 }
 

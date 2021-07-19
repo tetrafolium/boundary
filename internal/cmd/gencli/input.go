@@ -59,9 +59,15 @@ type cmdInfo struct {
 	// commands (e.g. "targets update tcp")
 	SubActionPrefix string
 
-	// NeedsSubTypeInCreate controls whether the sub-type must be passed in as
+	// NeedsSubtypeInCreate controls whether the sub-type must be passed in as
 	// an argument to a create call. Targets need this, accounts do not, etc.
-	NeedsSubTypeInCreate bool
+	NeedsSubtypeInCreate bool
+
+	// PrefixAttributeFieldErrorsWithSubactionPrefix will prepend the value in
+	// SubActionPrefix when reporting errors which are reported in flag format.
+	// This allows the flags to be defined differently from the the attribute
+	// names in the API.
+	PrefixAttributeFieldErrorsWithSubactionPrefix bool
 }
 
 var inputStructs = map[string][]*cmdInfo{
@@ -131,7 +137,7 @@ var inputStructs = map[string][]*cmdInfo{
 			HasDescription:       true,
 			Container:            "Scope",
 			VersionedActions:     []string{"update"},
-			NeedsSubTypeInCreate: true,
+			NeedsSubtypeInCreate: true,
 		},
 		{
 			ResourceType:         resource.AuthMethod.String(),
@@ -146,7 +152,7 @@ var inputStructs = map[string][]*cmdInfo{
 			HasDescription:       true,
 			Container:            "Scope",
 			VersionedActions:     []string{"update", "change-state"},
-			NeedsSubTypeInCreate: true,
+			NeedsSubtypeInCreate: true,
 		},
 	},
 	"authtokens": {
@@ -155,6 +161,59 @@ var inputStructs = map[string][]*cmdInfo{
 			Pkg:          "authtokens",
 			StdActions:   []string{"read", "delete", "list"},
 			Container:    "Scope",
+		},
+	},
+	"credentialstores": {
+		{
+			ResourceType:     resource.CredentialStore.String(),
+			Pkg:              "credentialstores",
+			StdActions:       []string{"read", "delete", "list"},
+			IsAbstractType:   true,
+			HasExtraHelpFunc: true,
+			Container:        "Scope",
+			HasId:            true,
+		},
+		{
+			ResourceType:         resource.CredentialStore.String(),
+			Pkg:                  "credentialstores",
+			StdActions:           []string{"create", "update"},
+			SubActionPrefix:      "vault",
+			HasExtraCommandVars:  true,
+			SkipNormalHelp:       true,
+			HasExtraHelpFunc:     true,
+			HasId:                true,
+			HasName:              true,
+			HasDescription:       true,
+			Container:            "Scope",
+			VersionedActions:     []string{"update"},
+			NeedsSubtypeInCreate: true,
+			PrefixAttributeFieldErrorsWithSubactionPrefix: true,
+		},
+	},
+	"credentiallibraries": {
+		{
+			ResourceType:     resource.CredentialLibrary.String(),
+			Pkg:              "credentiallibraries",
+			StdActions:       []string{"read", "delete", "list"},
+			IsAbstractType:   true,
+			HasExtraHelpFunc: true,
+			Container:        "CredentialStore",
+			HasId:            true,
+		},
+		{
+			ResourceType:        resource.CredentialLibrary.String(),
+			Pkg:                 "credentiallibraries",
+			StdActions:          []string{"create", "update"},
+			SubActionPrefix:     "vault",
+			HasExtraCommandVars: true,
+			SkipNormalHelp:      true,
+			HasExtraHelpFunc:    true,
+			HasId:               true,
+			HasName:             true,
+			HasDescription:      true,
+			Container:           "CredentialStore",
+			VersionedActions:    []string{"update"},
+			PrefixAttributeFieldErrorsWithSubactionPrefix: true,
 		},
 	},
 	"groups": {
@@ -193,7 +252,7 @@ var inputStructs = map[string][]*cmdInfo{
 			HasDescription:       true,
 			Container:            "Scope",
 			VersionedActions:     []string{"update"},
-			NeedsSubTypeInCreate: true,
+			NeedsSubtypeInCreate: true,
 		},
 	},
 	"hostsets": {
@@ -251,6 +310,32 @@ var inputStructs = map[string][]*cmdInfo{
 			VersionedActions:    []string{"update"},
 		},
 	},
+	"managedgroups": {
+		{
+			ResourceType:   resource.ManagedGroup.String(),
+			Pkg:            "managedgroups",
+			StdActions:     []string{"read", "delete", "list"},
+			IsAbstractType: true,
+			Container:      "AuthMethod",
+			HasId:          true,
+			HasName:        true,
+			HasDescription: true,
+		},
+		{
+			ResourceType:        resource.ManagedGroup.String(),
+			Pkg:                 "managedgroups",
+			StdActions:          []string{"create", "update"},
+			SubActionPrefix:     "oidc",
+			HasExtraCommandVars: true,
+			SkipNormalHelp:      true,
+			HasExtraHelpFunc:    true,
+			HasId:               true,
+			HasName:             true,
+			Container:           "AuthMethod",
+			HasDescription:      true,
+			VersionedActions:    []string{"update"},
+		},
+	},
 	"roles": {
 		{
 			ResourceType:        resource.Role.String(),
@@ -301,7 +386,7 @@ var inputStructs = map[string][]*cmdInfo{
 			HasName:             true,
 			HasDescription:      true,
 			Container:           "Scope",
-			VersionedActions:    []string{"add-host-sets", "remove-host-sets", "set-host-sets"},
+			VersionedActions:    []string{"add-host-sets", "remove-host-sets", "set-host-sets", "add-credential-libraries", "remove-credential-libraries", "set-credential-libraries"},
 		},
 		{
 			ResourceType:         resource.Target.String(),
@@ -316,7 +401,7 @@ var inputStructs = map[string][]*cmdInfo{
 			Container:            "Scope",
 			HasDescription:       true,
 			VersionedActions:     []string{"update"},
-			NeedsSubTypeInCreate: true,
+			NeedsSubtypeInCreate: true,
 		},
 	},
 	"users": {

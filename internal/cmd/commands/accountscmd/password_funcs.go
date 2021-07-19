@@ -7,8 +7,8 @@ import (
 
 	"github.com/hashicorp/boundary/api/accounts"
 	"github.com/hashicorp/boundary/internal/cmd/base"
-	"github.com/hashicorp/boundary/sdk/strutil"
-	"github.com/hashicorp/vault/sdk/helper/password"
+	"github.com/hashicorp/go-secure-stdlib/password"
+	"github.com/hashicorp/go-secure-stdlib/strutil"
 )
 
 func init() {
@@ -49,7 +49,7 @@ func (c *PasswordCommand) extraPasswordHelpFunc(helpMap map[string]func() string
 			"",
 			"  Update a password-type account given its ID. Example:",
 			"",
-			`    $ boundary accounts update password -id apw_1234567890 -name "devops" -description "Password account for DevOps"`,
+			`    $ boundary accounts update password -id acctpw_1234567890 -name "devops" -description "Password account for DevOps"`,
 			"",
 			"",
 		})

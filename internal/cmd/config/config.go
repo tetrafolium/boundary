@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/boundary/sdk/strutil"
+	"github.com/hashicorp/boundary/internal/observability/event"
 	wrapping "github.com/hashicorp/go-kms-wrapping"
+	"github.com/hashicorp/go-secure-stdlib/configutil"
+	"github.com/hashicorp/go-secure-stdlib/parseutil"
+	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"github.com/hashicorp/hcl"
-	"github.com/hashicorp/shared-secure-libs/configutil"
-	"github.com/hashicorp/vault/sdk/helper/parseutil"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -101,6 +100,9 @@ type Config struct {
 	DevControllerKey     string `hcl:"-"`
 	DevWorkerAuthKey     string `hcl:"-"`
 	DevRecoveryKey       string `hcl:"-"`
+
+	// Eventing configuration for the controller
+	Eventing *event.EventerConfig `hcl:"events"`
 }
 
 type Controller struct {
@@ -117,6 +119,13 @@ type Controller struct {
 	// denoted by time.Duration
 	AuthTokenTimeToStale         interface{} `hcl:"auth_token_time_to_stale"`
 	AuthTokenTimeToStaleDuration time.Duration
+
+	// StatusGracePeriod represents the period of time (as a duration) that the
+	// controller will wait before marking connections from a disconnected worker
+	// as invalid.
+	//
+	// TODO: This field is currently internal.
+	StatusGracePeriodDuration time.Duration `hcl:"-"`
 }
 
 type Worker struct {
@@ -130,6 +139,13 @@ type Worker struct {
 	// key=value syntax. This is trued up in the Parse function below.
 	TagsRaw interface{}         `hcl:"tags"`
 	Tags    map[string][]string `hcl:"-"`
+
+	// StatusGracePeriod represents the period of time (as a duration) that the
+	// worker will wait before disconnecting connections if it cannot make a
+	// status report to a controller.
+	//
+	// TODO: This field is currently internal.
+	StatusGracePeriodDuration time.Duration `hcl:"-"`
 }
 
 type Database struct {
@@ -238,8 +254,8 @@ func Parse(d string) (*Config, error) {
 
 	// Perform controller configuration overrides for auth token settings
 	if result.Controller != nil {
-		result.Controller.Name, err = ParseAddress(result.Controller.Name)
-		if err != nil && err != ErrNotAUrl {
+		result.Controller.Name, err = parseutil.ParsePath(result.Controller.Name)
+		if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 			return nil, fmt.Errorf("Error parsing controller name: %w", err)
 		}
 		if result.Controller.Name != strings.ToLower(result.Controller.Name) {
@@ -267,8 +283,8 @@ func Parse(d string) (*Config, error) {
 
 	// Parse worker tags
 	if result.Worker != nil {
-		result.Worker.Name, err = ParseAddress(result.Worker.Name)
-		if err != nil && err != ErrNotAUrl {
+		result.Worker.Name, err = parseutil.ParsePath(result.Worker.Name)
+		if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 			return nil, fmt.Errorf("Error parsing worker name: %w", err)
 		}
 		if result.Worker.Name != strings.ToLower(result.Worker.Name) {
@@ -341,18 +357,31 @@ func Parse(d string) (*Config, error) {
 	for _, listener := range result.SharedConfig.Listeners {
 		if strutil.StrListContains(listener.Purpose, "api") &&
 			(listener.CorsDisableDefaultAllowedOriginValues == nil || !*listener.CorsDisableDefaultAllowedOriginValues) {
-			// If CORS wasn't specified, enable default values
-			if listener.CorsEnabled == nil {
+			switch listener.CorsEnabled {
+			case nil:
+				// If CORS wasn't specified, enable default value of *, which allows
+				// both the admin UI (without the user having to explicitly set an
+				// origin) and the desktop origin
 				listener.CorsEnabled = new(bool)
 				*listener.CorsEnabled = true
-				listener.CorsAllowedOrigins = []string{desktopCorsOrigin}
+				listener.CorsAllowedOrigins = []string{"*"}
+
+			default:
+				// If not the wildcard and they haven't disabled us auto-adding
+				// origin values, add the desktop client origin
+				if *listener.CorsEnabled &&
+					!strutil.StrListContains(listener.CorsAllowedOrigins, "*") {
+					listener.CorsAllowedOrigins = strutil.AppendIfMissing(listener.CorsAllowedOrigins, desktopCorsOrigin)
+				}
 			}
-			// If not the wildcard and they haven't disabled us auto-adding
-			// origin values, add the desktop client origin
-			if *listener.CorsEnabled &&
-				!strutil.StrListContains(listener.CorsAllowedOrigins, "*") {
-				listener.CorsAllowedOrigins = strutil.AppendIfMissing(listener.CorsAllowedOrigins, desktopCorsOrigin)
-			}
+		}
+	}
+
+	if result.Eventing == nil {
+		result.Eventing = event.DefaultEventerConfig()
+	} else {
+		if result.Eventing.Sinks == nil {
+			result.Eventing.Sinks = []event.SinkConfig{event.DefaultSink()}
 		}
 	}
 
@@ -379,40 +408,4 @@ func (c *Config) Sanitized() map[string]interface{} {
 	}
 
 	return result
-}
-
-var ErrNotAUrl = errors.New("not a url")
-
-// ParseAddress parses a URL with schemes file://, env://, or any other.
-// Depending on the scheme it will return specific types of data:
-//
-// * file:// will return a string with the file's contents
-//
-// * env:// will return a string with the env var's contents
-//
-// * Anything else will return the string as it was
-//
-// On error, we return the original string along with the error. The caller can
-// switch on ErrNotAUrl to understand whether it was the parsing step that
-// errored or something else. This is useful to attempt to read a non-URL string
-// from some resource, but where the original input may simply be a valid string
-// of that type.
-func ParseAddress(addr string) (string, error) {
-	addr = strings.TrimSpace(addr)
-	parsed, err := url.Parse(addr)
-	if err != nil {
-		return addr, ErrNotAUrl
-	}
-	switch parsed.Scheme {
-	case "file":
-		contents, err := ioutil.ReadFile(strings.TrimPrefix(addr, "file://"))
-		if err != nil {
-			return addr, fmt.Errorf("error reading file at %s: %w", addr, err)
-		}
-		return strings.TrimSpace(string(contents)), nil
-	case "env":
-		return strings.TrimSpace(os.Getenv(strings.TrimPrefix(addr, "env://"))), nil
-	}
-
-	return addr, nil
 }

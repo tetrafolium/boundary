@@ -9,7 +9,8 @@ import (
 	"github.com/hashicorp/boundary/internal/types/scope"
 	"github.com/hashicorp/boundary/sdk/wrapper"
 	wrapping "github.com/hashicorp/go-kms-wrapping"
-	"github.com/hashicorp/vault/sdk/helper/mlock"
+	"github.com/hashicorp/go-secure-stdlib/mlock"
+	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/mitchellh/cli"
 	"github.com/posener/complete"
 )
@@ -184,6 +185,11 @@ func (c *InitCommand) Run(args []string) (retCode int) {
 		return base.CommandCliError
 	}
 
+	if err := c.srv.SetupEventing(c.srv.Logger, c.srv.StderrLock, base.WithEventerConfig(c.Config.Eventing)); err != nil {
+		c.UI.Error(err.Error())
+		return base.CommandCliError
+	}
+
 	if err := c.srv.SetupKMSes(c.UI, c.Config); err != nil {
 		c.UI.Error(err.Error())
 		return base.CommandCliError
@@ -233,8 +239,8 @@ func (c *InitCommand) Run(args []string) (retCode int) {
 		return base.CommandUserError
 	}
 
-	migrationUrl, err := config.ParseAddress(migrationUrlToParse)
-	if err != nil && err != config.ErrNotAUrl {
+	migrationUrl, err := parseutil.ParsePath(migrationUrlToParse)
+	if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 		c.UI.Error(fmt.Errorf("Error parsing migration url: %w", err).Error())
 		return base.CommandUserError
 	}
@@ -254,8 +260,8 @@ func (c *InitCommand) Run(args []string) (retCode int) {
 		c.UI.Error(`"url" not specified in "database" config block`)
 		return base.CommandUserError
 	}
-	c.srv.DatabaseUrl, err = config.ParseAddress(urlToParse)
-	if err != nil && err != config.ErrNotAUrl {
+	c.srv.DatabaseUrl, err = parseutil.ParsePath(urlToParse)
+	if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 		c.UI.Error(fmt.Errorf("Error parsing database url: %w", err).Error())
 		return base.CommandUserError
 	}

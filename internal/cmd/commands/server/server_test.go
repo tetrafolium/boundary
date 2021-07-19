@@ -22,22 +22,21 @@ func testServerCommand(t *testing.T, controllerKey string) *Command {
 	require := require.New(t)
 	t.Helper()
 	cmd := &Command{
-		Server:      base.NewServer(base.NewCommand(cli.NewMockUi())),
-		SighupCh:    base.MakeSighupCh(),
-		startedCh:   make(chan struct{}),
-		reloadedCh:  make(chan struct{}, 5),
-		skipMetrics: true,
+		Server:     base.NewServer(base.NewCommand(cli.NewMockUi())),
+		SighupCh:   base.MakeSighupCh(),
+		startedCh:  make(chan struct{}),
+		reloadedCh: make(chan struct{}, 5),
 	}
 
 	require.NoError(cmd.SetupLogging("trace", "", "", ""))
+	require.NoError(cmd.SetupEventing(cmd.Logger, cmd.StderrLock))
 
 	kmsHcl := fmt.Sprintf(rootKmsConfig, controllerKey)
 	parsedKmsConfig, err := config.Parse(kmsHcl)
 	require.NoError(err)
 	require.NoError(cmd.SetupKMSes(cmd.UI, parsedKmsConfig))
 
-	opts := base.WithContainerImage("postgres")
-	err = cmd.CreateDevDatabase(cmd.Context, opts)
+	err = cmd.CreateDevDatabase(cmd.Context, base.WithContainerImage("postgres"), base.WithSkipOidcAuthMethodCreation())
 	if err != nil {
 		if cmd.DevDatabaseCleanupFunc != nil {
 			require.NoError(cmd.DevDatabaseCleanupFunc())

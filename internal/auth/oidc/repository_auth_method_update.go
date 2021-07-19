@@ -11,8 +11,8 @@ import (
 	"github.com/hashicorp/boundary/internal/errors"
 	"github.com/hashicorp/boundary/internal/kms"
 	"github.com/hashicorp/boundary/internal/oplog"
-	"github.com/hashicorp/boundary/sdk/strutil"
 	"github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-secure-stdlib/strutil"
 )
 
 const (
@@ -21,6 +21,7 @@ const (
 	VersionField                           = "Version"
 	NameField                              = "Name"
 	DescriptionField                       = "Description"
+	FilterField                            = "Filter"
 	IssuerField                            = "Issuer"
 	ClientIdField                          = "ClientId"
 	ClientSecretField                      = "ClientSecret"
@@ -462,14 +463,14 @@ var supportedFactories = map[voName]factoryFunc{
 		if len(acm) > 1 {
 			return nil, errors.New(errors.InvalidParameter, op, fmt.Sprintf("unable to parse account claim map %s", str))
 		}
-		var from, rawTo string
-		for from, rawTo = range acm {
+		var m ClaimMap
+		for _, m = range acm {
 		}
-		to, err := ConvertToAccountToClaim(rawTo)
+		to, err := ConvertToAccountToClaim(m.To)
 		if err != nil {
 			return nil, errors.Wrap(err, op)
 		}
-		return NewAccountClaimMap(publicId, from, to)
+		return NewAccountClaimMap(publicId, m.From, to)
 	},
 }
 

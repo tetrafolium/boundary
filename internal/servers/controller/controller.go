@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/boundary/internal/auth/password"
 	"github.com/hashicorp/boundary/internal/authtoken"
 	"github.com/hashicorp/boundary/internal/cmd/config"
+	"github.com/hashicorp/boundary/internal/credential/vault"
 	"github.com/hashicorp/boundary/internal/db"
 	"github.com/hashicorp/boundary/internal/host/static"
 	"github.com/hashicorp/boundary/internal/iam"
@@ -21,8 +22,8 @@ import (
 	"github.com/hashicorp/boundary/internal/session"
 	"github.com/hashicorp/boundary/internal/target"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/vault/sdk/helper/base62"
-	"github.com/hashicorp/vault/sdk/helper/mlock"
+	"github.com/hashicorp/go-secure-stdlib/base62"
+	"github.com/hashicorp/go-secure-stdlib/mlock"
 	"github.com/patrickmn/go-cache"
 	ua "go.uber.org/atomic"
 )
@@ -37,18 +38,19 @@ type Controller struct {
 
 	workerAuthCache *cache.Cache
 
-	// Used for testing
+	// Used for testing and tracking worker health
 	workerStatusUpdateTimes *sync.Map
 
 	// Repo factory methods
-	AuthTokenRepoFn    common.AuthTokenRepoFactory
-	IamRepoFn          common.IamRepoFactory
-	OidcRepoFn         common.OidcAuthRepoFactory
-	PasswordAuthRepoFn common.PasswordAuthRepoFactory
-	ServersRepoFn      common.ServersRepoFactory
-	SessionRepoFn      common.SessionRepoFactory
-	StaticHostRepoFn   common.StaticRepoFactory
-	TargetRepoFn       common.TargetRepoFactory
+	AuthTokenRepoFn       common.AuthTokenRepoFactory
+	VaultCredentialRepoFn common.VaultCredentialRepoFactory
+	IamRepoFn             common.IamRepoFactory
+	OidcRepoFn            common.OidcAuthRepoFactory
+	PasswordAuthRepoFn    common.PasswordAuthRepoFactory
+	ServersRepoFn         common.ServersRepoFactory
+	SessionRepoFn         common.SessionRepoFactory
+	StaticHostRepoFn      common.StaticRepoFactory
+	TargetRepoFn          common.TargetRepoFactory
 
 	scheduler *scheduler.Scheduler
 
@@ -112,6 +114,15 @@ func New(conf *Config) (*Controller, error) {
 	); err != nil {
 		return nil, fmt.Errorf("error adding config keys to kms: %w", err)
 	}
+	jobRepoFn := func() (*job.Repository, error) {
+		return job.NewRepository(dbase, dbase, c.kms)
+	}
+	// TODO: the RunJobsLimit is temporary until a better fix gets in. This
+	// currently caps the scheduler at running 10 jobs per interval.
+	c.scheduler, err = scheduler.New(c.conf.RawConfig.Controller.Name, jobRepoFn, c.logger, scheduler.WithRunJobsLimit(10))
+	if err != nil {
+		return nil, fmt.Errorf("error creating new scheduler: %w", err)
+	}
 	c.IamRepoFn = func() (*iam.Repository, error) {
 		return iam.NewRepository(dbase, dbase, c.kms, iam.WithRandomReader(c.conf.SecureRandomReader))
 	}
@@ -122,6 +133,9 @@ func New(conf *Config) (*Controller, error) {
 		return authtoken.NewRepository(dbase, dbase, c.kms,
 			authtoken.WithTokenTimeToLiveDuration(c.conf.RawConfig.Controller.AuthTokenTimeToLiveDuration),
 			authtoken.WithTokenTimeToStaleDuration(c.conf.RawConfig.Controller.AuthTokenTimeToStaleDuration))
+	}
+	c.VaultCredentialRepoFn = func() (*vault.Repository, error) {
+		return vault.NewRepository(dbase, dbase, c.kms, c.scheduler)
 	}
 	c.ServersRepoFn = func() (*servers.Repository, error) {
 		return servers.NewRepository(dbase, dbase, c.kms)
@@ -138,16 +152,7 @@ func New(conf *Config) (*Controller, error) {
 	c.SessionRepoFn = func() (*session.Repository, error) {
 		return session.NewRepository(dbase, dbase, c.kms)
 	}
-
 	c.workerAuthCache = cache.New(0, 0)
-
-	jobRepoFn := func() (*job.Repository, error) {
-		return job.NewRepository(dbase, dbase, c.kms)
-	}
-	c.scheduler, err = scheduler.New(c.conf.RawConfig.Controller.Name, jobRepoFn, c.logger)
-	if err != nil {
-		return nil, fmt.Errorf("error creating new scheduler: %w", err)
-	}
 
 	return c, nil
 }
@@ -158,10 +163,12 @@ func (c *Controller) Start() error {
 		return nil
 	}
 	c.baseContext, c.baseCancel = context.WithCancel(context.Background())
+	if err := c.registerJobs(); err != nil {
+		return fmt.Errorf("error registering jobs: %w", err)
+	}
 	if err := c.scheduler.Start(c.baseContext); err != nil {
 		return fmt.Errorf("error starting scheduler: %w", err)
 	}
-
 	if err := c.startListeners(); err != nil {
 		return fmt.Errorf("error starting controller listeners: %w", err)
 	}
@@ -171,6 +178,33 @@ func (c *Controller) Start() error {
 	c.startTerminateCompletedSessionsTicking(c.baseContext)
 	c.startCloseExpiredPendingTokens(c.baseContext)
 	c.started.Store(true)
+
+	return nil
+}
+
+func (c *Controller) registerJobs() error {
+	rw := db.New(c.conf.Database)
+	if err := vault.RegisterJobs(c.baseContext, c.scheduler, rw, rw, c.kms, c.logger); err != nil {
+		return err
+	}
+
+	if err := c.registerSessionCleanupJob(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// registerSessionCleanupJob is a helper method to abstract
+// registering the session cleanup job specifically.
+func (c *Controller) registerSessionCleanupJob() error {
+	sessionCleanupJob, err := newSessionCleanupJob(c.logger, c.SessionRepoFn, int(c.conf.StatusGracePeriodDuration.Seconds()))
+	if err != nil {
+		return fmt.Errorf("error creating session cleanup job: %w", err)
+	}
+	if err = c.scheduler.RegisterJob(c.baseContext, sessionCleanupJob); err != nil {
+		return fmt.Errorf("error registering session cleanup job: %w", err)
+	}
 
 	return nil
 }
@@ -185,6 +219,11 @@ func (c *Controller) Shutdown(serversOnly bool) error {
 		return fmt.Errorf("error stopping controller listeners: %w", err)
 	}
 	c.started.Store(false)
+	if c.conf.Eventer != nil {
+		if err := c.conf.Eventer.FlushNodes(context.Background()); err != nil {
+			return fmt.Errorf("error flushing controller eventer nodes: %w", err)
+		}
+	}
 	return nil
 }
 

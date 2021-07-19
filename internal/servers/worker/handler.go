@@ -9,13 +9,13 @@ import (
 	"github.com/hashicorp/boundary/globals"
 	pbs "github.com/hashicorp/boundary/internal/gen/controller/servers/services"
 	"github.com/hashicorp/boundary/internal/proxy"
-	"github.com/hashicorp/shared-secure-libs/configutil"
+	"github.com/hashicorp/go-secure-stdlib/listenerutil"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wspb"
 )
 
 type HandlerProperties struct {
-	ListenerConfig *configutil.Listener
+	ListenerConfig *listenerutil.ListenerConfig
 }
 
 // Handler returns an http.Handler for the API. This can be used on
@@ -153,12 +153,7 @@ func (w *Worker) handleProxy() http.HandlerFunc {
 		}
 
 		defer func() {
-			connectionId := ci.id
-			if err := w.closeConnections(r.Context(), map[string]string{
-				connectionId: si.id,
-			}); err != nil {
-				w.logger.Error("error marking connection closed", "error", err, "connection_id", connectionId)
-			}
+			w.closeConnections(r.Context(), map[string]string{ci.id: si.id})
 		}()
 
 		si.Lock()

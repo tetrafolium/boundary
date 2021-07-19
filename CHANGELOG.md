@@ -4,6 +4,140 @@ Canonical reference for changes, improvements, and bugfixes for Boundary.
 
 ## Next
 
+### Bug Fixes
+
+* config: Fix error when populating all `kms` purposes in separate blocks (as
+  well as the error message)
+  ([issue](https://github.com/hashicorp/boundary/issues/1305),
+  [PR](https://github.com/hashicorp/boundary/pull/1384))
+
+## 0.4.0 (2021/06/29)
+
+### New and Improved
+
+* Credential Stores: This release introduces Credential Stores, with the first
+  implementation targeting Vault. A credential store can be created that accepts
+  a Vault periodic token (which it will keep refreshed) and connection
+  information allowing it to make requests to Vault.
+* Credential Libraries: This release introduces Credential Libraries, with the
+  first implementation targeting Vault. Credential libraries describe how to
+  make a request to fetch a credential from the credential store. The first
+  credential library is the `generic` type that takes in a user-defined request
+  body to send to Vault and thus can work for any type of Vault secrets engine.
+  When a credential library is used to fetch a credential, if the credential
+  contains a lease, Boundary will keep the credential refreshed, and revoke the
+  credential when the session that requested it is finished.
+* Credential Brokering: Credential libraries can be attached to targets; when a
+  session is authorized against that target, a credential will be fetched from
+  the library that is then relayed to the client. The client can then use this
+  information to make a connection, allowing them to gain the benefit of dynamic
+  credential generation from Vault, but without needing their own Vault
+  login/token (see NOTE below).
+* `boundary connect` Credential Brokering Integration: Additionally, we have
+  started integration into the `boundary connect` helpers, starting in this
+  release with the Postgres helper; if the credential contains a
+  username/password and `boundary connect postgres` is the helper being used,
+  the command will automatically pass the credentials to the `psql` process.
+* The worker will now close any existing proxy connections it is handling when
+  it cannot make a status request to the worker. The timeout for this behavior
+  is currently 15 seconds.
+
+NOTE: When using credential brokering, remember that if the user can connect
+directly to the end resource, they can use the brokered username and password
+via that direct connection to skip Boundary. This isn't any different from
+normal Boundary behavior (if a user can directly connect, they can bypass
+Boundary) but it's worth repeating.
+
+### Bug Fixes
+
+* scheduler: removes a Postgres check constraint, on the length of the controller name,
+  causing an error when the scheduler attempts to run jobs
+  ([issue](https://github.com/hashicorp/boundary/issues/1309),
+  [PR](https://github.com/hashicorp/boundary/pull/1310)).
+* Docker: update entrypoint script to handle more Boundary subcommands for
+  better UX
+
+## 0.3.0 (2021/06/08)
+
+### Deprecations/Changes
+
+* `password` account IDs: When the `oidc` auth method came out, accounts were
+  given the prefix `acctoidc`. Unfortunately, accounts in the `password` method
+  were using `apw`...oops. We're standardizing on `acct` and have updated the
+  `password` method to generate new IDs with `acctpw` prefixes.
+  Previously-generated prefixes will continue to work.
+
+### New and Improved
+
+* oidc: The new Managed Groups feature allows groups of accounts to be created
+  based on an authenticating user's JWT or User Info data. This data uses the
+  same filtering syntax found elsewhere in Boundary to provide a rich way to
+  specify the criteria for group membership. Once defined, authenticated users
+  are added to or removed from these groups as appropriateds each time they
+  authenticate. These groups are treated like other role principals and can be
+  added to roles to provide grants to users.
+* dev: Predictable IDs in `boundary dev` mode now extend to the accounts created
+  in the default `password` and `oidc` auth methods.
+* mlock: Add a Docker entrypoint script and modify Dockerfiles to handle mlock
+  in a fashion similar to Vault
+  ([PR](https://github.com/hashicorp/boundary/pull/1269))
+
+## 0.2.3 (2021/05/21)
+
+### Deprecations/Changes
+
+* The behavior when `cors_enabled` is not specified for a listener is changing
+  to be equivalent to a `cors_allowed_origins` value of `*`; that is, accept all
+  origins. This allows Boundary, by default, to have the admin UI and desktop
+  client work without further specification of origins by the operator. This is
+  only affecting default behavior; if `cors_enabled` is explicitly set to
+  `true`, the behavior will be the same as before. This had been changed in
+  v0.2.1 due to a bug found in v0.2.0 that caused all origins to always be
+  allowed, but fixing that bug exposed that the default behavior was difficult
+  for users to configure to simply get up and running.
+* If a `cancel` operation is run on a session already in a canceling or
+  terminated state, a `200` and the session information will be returned instead
+  of an error.
+
+### New and Improved
+
+* sessions: Return a `200` and session information when canceling an
+  already-canceled or terminated session
+  ([PR](https://github.com/hashicorp/boundary/pull/1243))
+
+### Bug Fixes
+
+* cors: Change the default allowed origins when `cors_enabled` is not specified
+  to be `*`. ([PR](https://github.com/hashicorp/boundary/pull/1249))
+
+## 0.2.2 (2021/05/17)
+
+### New and Improved
+
+* Inline OIDC authentication flow:  when the OIDC authentication flow succeeds,
+  the third-party provider browser window is automatically closed and the user
+  is returned to the admin UI.
+
+### Bug Fixes
+
+* oidc: If provider returns an `aud` claim as a `string` or `[]string`,
+  Boundary will properly parse the claims JSON.
+  ([issue](https://github.com/hashicorp/cap/issues/37),
+  [PR](https://github.com/hashicorp/boundary/pull/1231))
+* sessions: Clean up connections that are dangling after a worker dies (is
+  restarted, powered off, etc.) This fixes some cases where a session never goes
+  to `terminated` state because connections are not properly marked closed.
+  ([Issue 1](https://github.com/hashicorp/boundary/issues/894), [Issue
+  2](https://github.com/hashicorp/boundary/issues/1055),
+  [PR](https://github.com/hashicorp/boundary/pull/1220))
+* sessions: Add some missing API-level checks when session cancellation was
+  requested. It's much easier than interpreting the domain-level check failures.
+  ([PR](https://github.com/hashicorp/boundary/pull/1223))
+* authenticate: When authenticating with OIDC and `json` format output, the
+  command will no longer print out a notice that it's opening your web browser
+  ([Issue](https://github.com/hashicorp/boundary/issues/1193),
+  [PR](https://github.com/hashicorp/boundary/pull/1213))
+
 ## 0.2.1 (2021/05/05)
 
 ### Deprecations/Changes
@@ -123,9 +257,9 @@ Canonical reference for changes, improvements, and bugfixes for Boundary.
   behavior to automatically include the origin of the Desktop Client. This will
   be fixed in 0.2.1. In the meantime, this can be worked around by either
   explicitly disabing CORS with `cors_enabled = false` in the `listener` config
-  block with purpose `api`; or setting an `allowed_origins` field to have values
-  other than `serve://boundary` (including values that do not map to any real
-  origin).
+  block with purpose `api`; or setting a `cors_allowed_origins` field to have
+  values other than `serve://boundary` (including values that do not map to any
+  real origin).
 
 ### Deprecations/Changes
 
@@ -285,9 +419,9 @@ for more details.
     `create` or `list`. This format operates only on collections so assigning
     more actions this way will never work
 * CORS: CORS is now turned on by default when running with `boundary server`
-  with an `allowed_origins` value of `serve://boundary`. You can disable it with
-  `cors_enabled = false`, or if you want to change parameters, set `cors_enabled
-  = true` and the other related configuration values.
+  with a `cors_allowed_origins` value of `serve://boundary`. You can disable it
+  with `cors_enabled = false`, or if you want to change parameters, set
+  `cors_enabled = true` and the other related configuration values.
 
 ### New and Improved
 
@@ -314,7 +448,7 @@ for more details.
   ([Issue](https://github.com/hashicorp/boundary/pull/902),
   [PR](https://github.com/hashicorp/boundary/pull/901))
 * server: When shutting down a controller release the shared advisory lock with
-  a non-cancelled context.
+  a non-canceled context.
   ([Issue](https://github.com/hashicorp/boundary/pull/909),
   [PR](https://github.com/hashicorp/boundary/pull/918))
 * targets: If a worker filter references a key that doesn't exist, treat it as a

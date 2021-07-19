@@ -7,12 +7,12 @@ import (
 	"github.com/hashicorp/boundary/globals"
 	"github.com/hashicorp/boundary/internal/auth"
 	"github.com/hashicorp/boundary/internal/auth/oidc"
-	"github.com/hashicorp/boundary/internal/auth/password"
 	"github.com/hashicorp/boundary/internal/errors"
 	pb "github.com/hashicorp/boundary/internal/gen/controller/api/resources/users"
 	pbs "github.com/hashicorp/boundary/internal/gen/controller/api/services"
 	"github.com/hashicorp/boundary/internal/iam"
 	"github.com/hashicorp/boundary/internal/iam/store"
+	"github.com/hashicorp/boundary/internal/intglobals"
 	"github.com/hashicorp/boundary/internal/perms"
 	"github.com/hashicorp/boundary/internal/requests"
 	"github.com/hashicorp/boundary/internal/servers/controller/common"
@@ -21,7 +21,7 @@ import (
 	"github.com/hashicorp/boundary/internal/types/action"
 	"github.com/hashicorp/boundary/internal/types/resource"
 	"github.com/hashicorp/boundary/internal/types/scope"
-	"github.com/hashicorp/boundary/sdk/strutil"
+	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -51,7 +51,7 @@ var (
 
 func init() {
 	var err error
-	if maskManager, err = handlers.NewMaskManager(&store.User{}, &pb.User{}); err != nil {
+	if maskManager, err = handlers.NewMaskManager(handlers.MaskDestination{&store.User{}}, handlers.MaskSource{&pb.User{}}); err != nil {
 		panic(err)
 	}
 }
@@ -714,7 +714,11 @@ func validateAddUserAccountsRequest(req *pbs.AddUserAccountsRequest) error {
 	}
 	for _, a := range req.GetAccountIds() {
 		// TODO: Increase the type of auth accounts that can be added to a user.
-		if !handlers.ValidId(handlers.Id(a), password.AccountPrefix, oidc.AccountPrefix) {
+		if !handlers.ValidId(handlers.Id(a),
+			intglobals.OldPasswordAccountPrefix,
+			intglobals.NewPasswordAccountPrefix,
+			oidc.AccountPrefix,
+		) {
 			badFields["account_ids"] = "Values must be valid account ids."
 			break
 		}
@@ -735,7 +739,11 @@ func validateSetUserAccountsRequest(req *pbs.SetUserAccountsRequest) error {
 	}
 	for _, a := range req.GetAccountIds() {
 		// TODO: Increase the type of auth accounts that can be added to a user.
-		if !handlers.ValidId(handlers.Id(a), password.AccountPrefix, oidc.AccountPrefix) {
+		if !handlers.ValidId(handlers.Id(a),
+			intglobals.OldPasswordAccountPrefix,
+			intglobals.NewPasswordAccountPrefix,
+			oidc.AccountPrefix,
+		) {
 			badFields["account_ids"] = "Values must be valid account ids."
 			break
 		}
@@ -759,7 +767,11 @@ func validateRemoveUserAccountsRequest(req *pbs.RemoveUserAccountsRequest) error
 	}
 	for _, a := range req.GetAccountIds() {
 		// TODO: Increase the type of auth accounts that can be added to a user.
-		if !handlers.ValidId(handlers.Id(a), password.AccountPrefix, oidc.AccountPrefix) {
+		if !handlers.ValidId(handlers.Id(a),
+			intglobals.OldPasswordAccountPrefix,
+			intglobals.NewPasswordAccountPrefix,
+			oidc.AccountPrefix,
+		) {
 			badFields["account_ids"] = "Values must be valid account ids."
 			break
 		}

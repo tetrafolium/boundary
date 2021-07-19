@@ -27,6 +27,17 @@ const createJobQuery = `
 	returning *;
 `
 
+const setNextScheduledRunIfSoonerQuery = `
+	update
+	  job
+	set
+	  next_scheduled_run = least(wt_add_seconds_to_now(?), next_scheduled_run)
+	where
+	  plugin_id = ?
+	  and name = ?
+	returning *;
+`
+
 const setNextScheduledRunQuery = `
 	update
 	  job
@@ -54,8 +65,10 @@ const completeRunQuery = `
 	update
 	  job_run
 	set
-	  status = 'completed',
-	  end_time = current_timestamp
+	  completed_count = ?,
+	  total_count     = ?,
+	  status          = 'completed',
+	  end_time        = current_timestamp
 	where
 	  private_id = ?
 	  and status = 'running'
@@ -66,8 +79,10 @@ const failRunQuery = `
 	update
 	  job_run
 	set
-	  status = 'failed',
-	  end_time = current_timestamp
+	  completed_count = ?,
+	  total_count     = ?,
+	  status          = 'failed',
+	  end_time        = current_timestamp
 	where
 	  private_id = ?
 	  and status = 'running'

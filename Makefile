@@ -134,6 +134,8 @@ protobuild:
 	@protoc-go-inject-tag -input=./internal/target/store/target.pb.go
 	@protoc-go-inject-tag -input=./internal/auth/oidc/store/oidc.pb.go
 	@protoc-go-inject-tag -input=./internal/scheduler/job/store/job.pb.go
+	@protoc-go-inject-tag -input=./internal/credential/store/credential.pb.go
+	@protoc-go-inject-tag -input=./internal/credential/vault/store/vault.pb.go
 
 	@rm -R ${TMP_DIR}
 
@@ -162,7 +164,7 @@ install-go:
 # Docker build and publish variables and targets
 REGISTRY_NAME?=docker.io/hashicorp
 IMAGE_NAME=boundary
-VERSION?=0.2.1
+VERSION?=0.4.0
 IMAGE_TAG=$(REGISTRY_NAME)/$(IMAGE_NAME):$(VERSION)
 IMAGE_TAG_DEV=$(REGISTRY_NAME)/$(IMAGE_NAME):latest-$(shell git rev-parse --short HEAD)
 DOCKER_DIR=./docker

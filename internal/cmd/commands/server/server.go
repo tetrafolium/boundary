@@ -22,7 +22,8 @@ import (
 	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/hashicorp/go-kms-wrapping"
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/vault/sdk/helper/mlock"
+	"github.com/hashicorp/go-secure-stdlib/mlock"
+	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/mitchellh/cli"
 	"github.com/posener/complete"
 	"go.uber.org/atomic"
@@ -54,10 +55,6 @@ type Command struct {
 	reloadedCh   chan struct{}  // for tests
 	startedCh    chan struct{}  // for tests
 	presetConfig *atomic.String // for tests
-	// for tests -- Prometheus seems to use a global collector so if package
-	// tests are run it errors out even if they're not run in parallel 🙄 cause
-	// Go runs the tests within the same overall process
-	skipMetrics bool
 }
 
 func (c *Command) Synopsis() string {
@@ -150,14 +147,16 @@ func (c *Command) Run(args []string) int {
 		return base.CommandUserError
 	}
 
-	base.StartMemProfiler(c.Logger)
-
-	if !c.skipMetrics {
-		if err := c.SetupMetrics(c.UI, c.Config.Telemetry); err != nil {
-			c.UI.Error(err.Error())
-			return base.CommandUserError
-		}
+	if err := c.SetupEventing(c.Logger, c.StderrLock, base.WithEventerConfig(c.Config.Eventing)); err != nil {
+		c.UI.Error(err.Error())
+		return base.CommandUserError
 	}
+
+	// Initialize status grace period (0 denotes using env or default
+	// here)
+	c.SetStatusGracePeriodDuration(0)
+
+	base.StartMemProfiler(c.Logger)
 
 	if err := c.SetupKMSes(c.UI, c.Config); err != nil {
 		c.UI.Error(err.Error())
@@ -361,8 +360,8 @@ func (c *Command) Run(args []string) int {
 			return base.CommandUserError
 		}
 		var err error
-		c.DatabaseUrl, err = config.ParseAddress(c.Config.Controller.Database.Url)
-		if err != nil && err != config.ErrNotAUrl {
+		c.DatabaseUrl, err = parseutil.ParsePath(c.Config.Controller.Database.Url)
+		if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 			c.UI.Error(fmt.Errorf("Error parsing database url: %w", err).Error())
 			return base.CommandUserError
 		}
@@ -384,7 +383,7 @@ func (c *Command) Run(args []string) int {
 			return base.CommandCliError
 		}
 		defer func() {
-			// The base context has already been cancelled so we shouldn't use it here.
+			// The base context has already been canceled so we shouldn't use it here.
 			// 1 second is chosen so the shutdown is still responsive and this is a mostly
 			// non critical step since the lock should be released when the session with the
 			// database is closed.
