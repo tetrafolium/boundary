@@ -323,7 +323,6 @@ func TestList(t *testing.T) {
 		})
 	}
 
-
 	orgWithOtherTokens, _ := iam.TestScopes(t, iamRepo)
 	var wantOtherTokens []*pb.AuthToken
 	for i := 0; i < 3; i++ {
