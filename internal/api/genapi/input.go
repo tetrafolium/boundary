@@ -552,16 +552,8 @@ var inputStructs = []*structInfo{
 		createResponseTypes: true,
 	},
 	{
-		inProto: &targets.HostSet{},
-		outFile: "targets/host_set.gen.go",
-	},
-	{
 		inProto: &targets.HostSource{},
 		outFile: "targets/host_source.gen.go",
-	},
-	{
-		inProto: &targets.CredentialLibrary{},
-		outFile: "targets/credential_library.gen.go",
 	},
 	{
 		inProto: &targets.CredentialSource{},
@@ -609,15 +601,10 @@ var inputStructs = []*structInfo{
 		},
 		pluralResourceName: "targets",
 		sliceSubtypes: map[string]sliceSubtypeInfo{
-			"HostSets": {
-				SliceType: "[]string",
-				VarName:   "hostSetIds",
-			},
 			"HostSources": {
 				SliceType: "[]string",
 				VarName:   "hostSourceIds",
 			},
-			"CredentialLibraries": {},
 			"CredentialSources":   {},
 		},
 		extraOptions: []fieldInfo{
@@ -638,11 +625,6 @@ var inputStructs = []*structInfo{
 				ProtoName:   "scope_name",
 				FieldType:   "string",
 				SkipDefault: true,
-			},
-			{
-				Name:      "ApplicationCredentialLibraryIds",
-				ProtoName: "application_credential_library_ids",
-				FieldType: "[]string",
 			},
 			{
 				Name:      "ApplicationCredentialSourceIds",

@@ -32,9 +32,9 @@ const (
 	AddHosts                  Type = 21
 	SetHosts                  Type = 22
 	RemoveHosts               Type = 23
-	AddHostSets               Type = 24 // DEPRECATED
-	SetHostSets               Type = 25 // DEPRECATED
-	RemoveHostSets            Type = 26 // DEPRECATED
+	AddHostSets               Type = 24
+	SetHostSets               Type = 25
+	RemoveHostSets            Type = 26
 	Cancel                    Type = 27
 	AddAccounts               Type = 28
 	SetAccounts               Type = 29
@@ -44,9 +44,9 @@ const (
 	ChangeState               Type = 33
 	DeleteSelf                Type = 34
 	NoOp                      Type = 35
-	AddCredentialLibraries    Type = 36 // DEPRECATED
-	SetCredentialLibraries    Type = 37 // DEPRECATED
-	RemoveCredentialLibraries Type = 38 // DEPRECATED
+	addCredentialLibraries    Type = 36 // DEPRECATED
+	setCredentialLibraries    Type = 37 // DEPRECATED
+	removeCredentialLibraries Type = 38 // DEPRECATED
 	AddCredentialSources      Type = 39
 	SetCredentialSources      Type = 40
 	RemoveCredentialSources   Type = 41
@@ -91,9 +91,6 @@ var Map = map[string]Type{
 	ChangeState.String():               ChangeState,
 	DeleteSelf.String():                DeleteSelf,
 	NoOp.String():                      NoOp,
-	AddCredentialLibraries.String():    AddCredentialLibraries,
-	SetCredentialLibraries.String():    SetCredentialLibraries,
-	RemoveCredentialLibraries.String(): RemoveCredentialLibraries,
 	AddCredentialSources.String():      AddCredentialSources,
 	SetCredentialSources.String():      SetCredentialSources,
 	RemoveCredentialSources.String():   RemoveCredentialSources,
@@ -140,9 +137,9 @@ func (a Type) String() string {
 		"change-state",
 		"delete:self",
 		"no-op",
-		"add-credential-libraries",
-		"set-credential-libraries",
-		"remove-credential-libraries",
+		"add-credential-libraries", // DEPRECATED
+		"set-credential-libraries", // DEPRECATED
+		"remove-credential-libraries", // DEPRECATED
 		"add-credential-sources",
 		"set-credential-sources",
 		"remove-credential-sources",

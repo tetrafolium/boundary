@@ -48,15 +48,15 @@ func generateCredentialTableOutputSlice(prefixIndent int, creds []*targets.Sessi
 	prefixString := strings.Repeat(" ", prefixIndent)
 	for _, crd := range creds {
 		libMap := map[string]interface{}{
-			"Credential Store ID":   crd.CredentialLibrary.CredentialStoreId,
-			"Credential Library ID": crd.CredentialLibrary.Id,
-			"Credential Store Type": crd.CredentialLibrary.Type,
+			"Credential Store ID":   crd.CredentialSource.CredentialStoreId,
+			"Credential Library ID": crd.CredentialSource.Id,
+			"Credential Store Type": crd.CredentialSource.Type,
 		}
-		if crd.CredentialLibrary.Name != "" {
-			libMap["Credential Library Name"] = crd.CredentialLibrary.Name
+		if crd.CredentialSource.Name != "" {
+			libMap["Credential Library Name"] = crd.CredentialSource.Name
 		}
-		if crd.CredentialLibrary.Description != "" {
-			libMap["Credential Library Description"] = crd.CredentialLibrary.Description
+		if crd.CredentialSource.Description != "" {
+			libMap["Credential Library Description"] = crd.CredentialSource.Description
 		}
 		maxLength := base.MaxAttributesLength(libMap, nil, nil)
 		ret = append(ret,
@@ -74,7 +74,7 @@ func generateCredentialTableOutputSlice(prefixIndent int, creds []*targets.Sessi
 func fmtSecretForTable(indent int, sc *targets.SessionCredential) []string {
 	prefixStr := strings.Repeat(" ", indent)
 	origSecret := []string{fmt.Sprintf("%s    %s", prefixStr, sc.Secret.Raw)}
-	switch sc.CredentialLibrary.Type {
+	switch sc.CredentialSource.Type {
 	case "vault":
 		in, err := base64.StdEncoding.DecodeString(strings.Trim(string(sc.Secret.Raw), `"`))
 		if err != nil {

@@ -29,46 +29,26 @@ func init() {
 }
 
 type extraCmdVars struct {
-	flagHostSets                       []string
-	flagHostSources                    []string
-	flagApplicationCredentialLibraries []string
-	flagApplicationCredentialSources   []string
-	flagHostId                         string
-	sar                                *targets.SessionAuthorizationResult
+	flagHostSources                  []string
+	flagApplicationCredentialSources []string
+	flagHostId                       string
+	sar                              *targets.SessionAuthorizationResult
 }
 
 func extraActionsFlagsMapFuncImpl() map[string][]string {
 	return map[string][]string{
-		"authorize-session":           {"id", "host-id"},
-		"add-host-sets":               {"id", "host-set", "version"},
-		"remove-host-sets":            {"id", "host-set", "version"},
-		"set-host-sets":               {"id", "host-set", "version"},
-		"add-host-sources":            {"id", "host-source", "version"},
-		"remove-host-sources":         {"id", "host-source", "version"},
-		"set-host-sources":            {"id", "host-source", "version"},
-		"add-credential-libraries":    {"id", "application-credential-library", "version"},
-		"remove-credential-libraries": {"id", "application-credential-library", "version"},
-		"set-credential-libraries":    {"id", "application-credential-library", "version"},
-		"add-credential-sources":      {"id", "application-credential-source", "version"},
-		"remove-credential-sources":   {"id", "application-credential-source", "version"},
-		"set-credential-sources":      {"id", "application-credential-source", "version"},
+		"authorize-session":         {"id", "host-id"},
+		"add-host-sources":          {"id", "host-source", "version"},
+		"remove-host-sources":       {"id", "host-source", "version"},
+		"set-host-sources":          {"id", "host-source", "version"},
+		"add-credential-sources":    {"id", "application-credential-source", "version"},
+		"remove-credential-sources": {"id", "application-credential-source", "version"},
+		"set-credential-sources":    {"id", "application-credential-source", "version"},
 	}
 }
 
 func extraSynopsisFuncImpl(c *Command) string {
 	switch c.Func {
-	case "add-host-sets", "set-host-sets", "remove-host-sets":
-		var in string
-		switch {
-		case strings.HasPrefix(c.Func, "add"):
-			in = "Add host sets to"
-		case strings.HasPrefix(c.Func, "set"):
-			in = "Set the full contents of the host sets on"
-		case strings.HasPrefix(c.Func, "remove"):
-			in = "Remove host sets from"
-		}
-		return wordwrap.WrapString(fmt.Sprintf("%s a target", in), base.TermWidth)
-
 	case "add-host-sources", "set-host-sources", "remove-host-sources":
 		var in string
 		switch {
@@ -80,18 +60,6 @@ func extraSynopsisFuncImpl(c *Command) string {
 			in = "Remove host sources from"
 		}
 		return wordwrap.WrapString(fmt.Sprintf("%s a target", in), base.TermWidth)
-
-	case "add-credential-libraries", "set-credential-libraries", "remove-credential-libraries":
-		var in string
-		switch {
-		case strings.HasPrefix(c.Func, "add"):
-			in = "Add credential libraries to"
-		case strings.HasPrefix(c.Func, "set"):
-			in = "Set the full contents of the credential libraries on"
-		case strings.HasPrefix(c.Func, "remove"):
-			in = "Remove credential libraries from"
-		}
-		return wordwrap.WrapString(fmt.Sprintf("%s a target. DEPRECATED; use the -sources version instead.", in), base.TermWidth)
 
 	case "add-credential-sources", "set-credential-sources", "remove-credential-sources":
 		var in string
@@ -152,48 +120,6 @@ func (c *Command) extraHelpFunc(helpMap map[string]func() string) string {
 			"",
 			"  Please see the typed subcommand help for detailed usage information.",
 		})
-	case "add-host-sets":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target add-host-sets [options] [args]",
-			"",
-			"  DEPRECATED: Use add-host-sources instead.",
-			"",
-			"  This command allows adding host-set resources to target resources. Example:",
-			"",
-			"    Add host-set resources to a tcp-type target:",
-			"",
-			`      $ boundary targets add-host-sets -id ttcp_1234567890 -host-set hsst_1234567890 -host-set hsst_0987654321`,
-			"",
-			"",
-		})
-	case "remove-host-sets":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target remove-host-sets [options] [args]",
-			"",
-			"  DEPRECATED: Use remove-host-sources instead.",
-			"",
-			"  This command allows removing host-set resources from target resources. Example:",
-			"",
-			"    Remove host-set resources from a tcp-type target:",
-			"",
-			`      $ boundary targets remove-host-sets -id ttcp_1234567890 -host hsst_1234567890 -host-set hsst_0987654321`,
-			"",
-			"",
-		})
-	case "set-host-sets":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target set-host-sets [options] [args]",
-			"",
-			"  DEPRECATED: Use set-host-sources instead.",
-			"",
-			"  This command allows setting the complete set of host-set resources on a target resource. Example:",
-			"",
-			"    Set host-set resources on a tcp-type target:",
-			"",
-			`      $ boundary targets set-host-sets -id ttcp_1234567890 -host-set hsst_1234567890`,
-			"",
-			"",
-		})
 	case "add-host-sources":
 		helpStr = base.WrapForHelpText([]string{
 			"Usage: boundary target add-host-sources [options] [args]",
@@ -227,48 +153,6 @@ func (c *Command) extraHelpFunc(helpMap map[string]func() string) string {
 			"    Set host sources on a tcp-type target:",
 			"",
 			`      $ boundary targets set-host-sources -id ttcp_1234567890 -host-source hsst_1234567890`,
-			"",
-			"",
-		})
-	case "add-credential-libraries":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target add-credential-libraries [options] [args]",
-			"",
-			"  DEPRECATED: Use add-credential-sources instead.",
-			"",
-			"  This command allows adding credential-library resources to target resources. Example:",
-			"",
-			"    Add credential-library resources to a tcp-type target:",
-			"",
-			`      $ boundary targets add-credential-libraries -id ttcp_1234567890 -application-credential-library clvlt_1234567890 -application-credential-library clvlt_0987654321`,
-			"",
-			"",
-		})
-	case "remove-credential-libraries":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target remove-credential-libraries [options] [args]",
-			"",
-			"  DEPRECATED: Use remove-credential-sources instead.",
-			"",
-			"  This command allows removing credential-library resources from target resources. Example:",
-			"",
-			"    Remove credential-library resources from a tcp-type target:",
-			"",
-			`      $ boundary targets remove-credential-libraries -id ttcp_1234567890 -application-credential-library clvlt_1234567890 -application-credential-library clvlt_0987654321`,
-			"",
-			"",
-		})
-	case "set-credential-libraries":
-		helpStr = base.WrapForHelpText([]string{
-			"Usage: boundary target set-credential-libraries [options] [args]",
-			"",
-			"  DEPRECATED: Use set-credential-sources instead.",
-			"",
-			"  This command allows setting the complete set of credential-library resources on a target resource. Example:",
-			"",
-			"    Set credential-library resources on a tcp-type target:",
-			"",
-			`      $ boundary targets set-credential-libraries -id ttcp_1234567890 -application-credential-library clvlt_1234567890`,
 			"",
 			"",
 		})
@@ -331,12 +215,6 @@ func (c *Command) extraHelpFunc(helpMap map[string]func() string) string {
 func extraFlagsFuncImpl(c *Command, _ *base.FlagSets, f *base.FlagSet) {
 	for _, name := range flagsMap[c.Func] {
 		switch name {
-		case "host-set":
-			f.StringSliceVar(&base.StringSliceVar{
-				Name:   "host-set",
-				Target: &c.flagHostSets,
-				Usage:  "The host-set resources to add, remove, or set. May be specified multiple times.",
-			})
 		case "host-source":
 			f.StringSliceVar(&base.StringSliceVar{
 				Name:   "host-source",
@@ -348,12 +226,6 @@ func extraFlagsFuncImpl(c *Command, _ *base.FlagSets, f *base.FlagSet) {
 				Name:   "host-id",
 				Target: &c.flagHostId,
 				Usage:  "The ID of a specific host to connect to out of the hosts from the target's host sets. If not specified, one is chosen at random.",
-			})
-		case "application-credential-library":
-			f.StringSliceVar(&base.StringSliceVar{
-				Name:   "application-credential-library",
-				Target: &c.flagApplicationCredentialLibraries,
-				Usage:  "The credential-library resource for application purpose to add, set, or remove.  May be specified multiple times.",
 			})
 		case "application-credential-source":
 			f.StringSliceVar(&base.StringSliceVar{
@@ -425,27 +297,10 @@ func extraFlagsHandlingFuncImpl(c *Command, _ *base.FlagSets, opts *[]targets.Op
 	}
 
 	switch c.Func {
-	case "add-host-sets", "remove-host-sets":
-		if len(c.flagHostSets) == 0 {
-			c.UI.Error("No host-sets supplied via -host-set")
-			return false
-		}
-
 	case "add-host-sources", "remove-host-sources":
 		if len(c.flagHostSources) == 0 {
 			c.UI.Error("No host sources supplied via -host-source")
 			return false
-		}
-
-	case "set-host-sets":
-		switch len(c.flagHostSets) {
-		case 0:
-			c.UI.Error("No host-sets supplied via -host-set")
-			return false
-		case 1:
-			if c.flagHostSets[0] == "null" {
-				c.flagHostSets = nil
-			}
 		}
 
 	case "set-host-sources":
@@ -459,14 +314,6 @@ func extraFlagsHandlingFuncImpl(c *Command, _ *base.FlagSets, opts *[]targets.Op
 			}
 		}
 
-	case "add-credential-libraries", "remove-credential-libraries":
-		// TODO: As we add other purposes, add them to this check
-		if len(c.flagApplicationCredentialLibraries) == 0 {
-			c.UI.Error("No credential-libraries supplied via -application-credential-library")
-			return false
-		}
-		*opts = append(*opts, targets.WithApplicationCredentialLibraryIds(c.flagApplicationCredentialLibraries))
-
 	case "add-credential-sources", "remove-credential-sources":
 		// TODO: As we add other purposes, add them to this check
 		if len(c.flagApplicationCredentialSources) == 0 {
@@ -474,22 +321,6 @@ func extraFlagsHandlingFuncImpl(c *Command, _ *base.FlagSets, opts *[]targets.Op
 			return false
 		}
 		*opts = append(*opts, targets.WithApplicationCredentialSourceIds(c.flagApplicationCredentialSources))
-
-	case "set-credential-libraries":
-		// TODO: As we add other purposes, add them to this check
-		switch len(c.flagApplicationCredentialLibraries) {
-		case 0:
-			c.UI.Error("No credential-libraries supplied via -application-credential-library")
-			return false
-		case 1:
-			if c.flagApplicationCredentialLibraries[0] == "null" {
-				*opts = append(*opts, targets.DefaultApplicationCredentialLibraryIds())
-				break
-			}
-			fallthrough
-		default:
-			*opts = append(*opts, targets.WithApplicationCredentialLibraryIds(c.flagApplicationCredentialLibraries))
-		}
 
 	case "set-credential-sources":
 		// TODO: As we add other purposes, add them to this check
@@ -518,24 +349,12 @@ func extraFlagsHandlingFuncImpl(c *Command, _ *base.FlagSets, opts *[]targets.Op
 
 func executeExtraActionsImpl(c *Command, origResult api.GenericResult, origError error, targetClient *targets.Client, version uint32, opts []targets.Option) (api.GenericResult, error) {
 	switch c.Func {
-	case "add-host-sets":
-		return targetClient.AddHostSets(c.Context, c.FlagId, version, c.flagHostSets, opts...)
-	case "remove-host-sets":
-		return targetClient.RemoveHostSets(c.Context, c.FlagId, version, c.flagHostSets, opts...)
-	case "set-host-sets":
-		return targetClient.SetHostSets(c.Context, c.FlagId, version, c.flagHostSets, opts...)
 	case "add-host-sources":
 		return targetClient.AddHostSources(c.Context, c.FlagId, version, c.flagHostSources, opts...)
 	case "remove-host-sources":
 		return targetClient.RemoveHostSources(c.Context, c.FlagId, version, c.flagHostSources, opts...)
 	case "set-host-sources":
 		return targetClient.SetHostSources(c.Context, c.FlagId, version, c.flagHostSources, opts...)
-	case "add-credential-libraries":
-		return targetClient.AddCredentialLibraries(c.Context, c.FlagId, version, opts...)
-	case "remove-credential-libraries":
-		return targetClient.RemoveCredentialLibraries(c.Context, c.FlagId, version, opts...)
-	case "set-credential-libraries":
-		return targetClient.SetCredentialLibraries(c.Context, c.FlagId, version, opts...)
 	case "add-credential-sources":
 		return targetClient.AddCredentialSources(c.Context, c.FlagId, version, opts...)
 	case "remove-credential-sources":
@@ -660,18 +479,6 @@ func printItemTable(result api.GenericResult) string {
 			maxLength = l
 		}
 	}
-	if len(item.HostSets) > 0 {
-		for _, set := range item.HostSets {
-			m := map[string]interface{}{
-				"ID":              set.Id,
-				"Host Catalog ID": set.HostCatalogId,
-			}
-			hostSourceMaps = append(hostSourceMaps, m)
-		}
-		if l := len("Host Catalog ID"); l > maxLength {
-			maxLength = l
-		}
-	}
 
 	var credentialSourceMaps map[credential.Purpose][]map[string]interface{}
 	if len(item.ApplicationCredentialSources) > 0 {
@@ -680,23 +487,6 @@ func printItemTable(result api.GenericResult) string {
 		}
 		var applicationCredentialSourceMaps []map[string]interface{}
 		for _, lib := range item.ApplicationCredentialSources {
-			m := map[string]interface{}{
-				"ID":                  lib.Id,
-				"Credential Store ID": lib.CredentialStoreId,
-			}
-			applicationCredentialSourceMaps = append(applicationCredentialSourceMaps, m)
-		}
-		credentialSourceMaps[credential.ApplicationPurpose] = applicationCredentialSourceMaps
-		if l := len("Credential Store ID"); l > maxLength {
-			maxLength = l
-		}
-	}
-	if len(item.ApplicationCredentialLibraries) > 0 {
-		if credentialSourceMaps == nil {
-			credentialSourceMaps = make(map[credential.Purpose][]map[string]interface{})
-		}
-		var applicationCredentialSourceMaps []map[string]interface{}
-		for _, lib := range item.ApplicationCredentialLibraries {
 			m := map[string]interface{}{
 				"ID":                  lib.Id,
 				"Credential Store ID": lib.CredentialStoreId,
@@ -889,14 +679,14 @@ func exampleOutput() string {
 		Scope: &scopes.ScopeInfo{
 			Id: "global",
 		},
-		Name:        "foo",
-		Description: "The bar of foos",
-		CreatedTime: time.Now().Add(-5 * time.Minute),
-		UpdatedTime: time.Now(),
-		Version:     3,
-		Type:        "tcp",
-		HostSetIds:  []string{"hsst_1234567890", "hsst_0987654321"},
-		HostSets: []*targets.HostSet{
+		Name:          "foo",
+		Description:   "The bar of foos",
+		CreatedTime:   time.Now().Add(-5 * time.Minute),
+		UpdatedTime:   time.Now(),
+		Version:       3,
+		Type:          "tcp",
+		HostSourceIds: []string{"hsst_1234567890", "hsst_0987654321"},
+		HostSources: []*targets.HostSource{
 			{
 				Id:            "hsst_1234567890",
 				HostCatalogId: "hcst_1234567890",
@@ -906,8 +696,8 @@ func exampleOutput() string {
 				HostCatalogId: "hcst_1234567890",
 			},
 		},
-		ApplicationCredentialLibraryIds: []string{"clvlt_1234567890", "clvlt_0987654321"},
-		ApplicationCredentialLibraries: []*targets.CredentialLibrary{
+		ApplicationCredentialSourceIds: []string{"clvlt_1234567890", "clvlt_0987654321"},
+		ApplicationCredentialSources: []*targets.CredentialSource{
 			{
 				Id:                "clvlt_1234567890",
 				CredentialStoreId: "csvlt_1234567890",

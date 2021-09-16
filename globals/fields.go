@@ -34,7 +34,6 @@ const (
 	TargetIdField                        = "target_id"
 	HostIdField                          = "host_id"
 	HostSetIdField                       = "host_set_id"
-	HostSetsField                        = "host_sets"
 	HostSourcesField                     = "host_sources"
 	AuthTokenIdField                     = "auth_token_id"
 	EndpointField                        = "endpoint"
@@ -54,8 +53,6 @@ const (
 	ManagedGroupIdsField                 = "managed_group_ids"
 	FilterField                          = "filter"
 	CredentialStoreIdField               = "credential_store_id"
-	ApplicationCredentialLibraryIdsField = "application_credential_library_ids"
-	ApplicationCredentialLibrariesField  = "application_credential_libraries"
 	ApplicationCredentialSourceIdsField  = "application_credential_source_ids"
 	ApplicationCredentialSourcesField    = "application_credential_sources"
 )

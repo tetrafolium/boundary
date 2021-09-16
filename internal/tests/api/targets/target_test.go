@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHostSetASD(t *testing.T) {
+func TestHostSourcesASD(t *testing.T) {
 	assert, require := assert.New(t), require.New(t)
 	tc := controller.NewTestController(t, nil)
 	defer tc.Shutdown()
@@ -44,29 +44,29 @@ func TestHostSetASD(t *testing.T) {
 	tar, err := tarClient.Create(tc.Context(), "tcp", proj.GetPublicId(), targets.WithName("foo"))
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.Empty(tar.Item.HostSetIds)
+	assert.Empty(tar.Item.HostSourceIds)
 
-	tar, err = tarClient.AddHostSets(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet.Item.Id})
+	tar, err = tarClient.AddHostSources(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet.Item.Id})
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.ElementsMatch(tar.Item.HostSetIds, []string{hSet.Item.Id})
+	assert.ElementsMatch(tar.Item.HostSourceIds, []string{hSet.Item.Id})
 
-	tar, err = tarClient.SetHostSets(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet2.Item.Id})
+	tar, err = tarClient.SetHostSources(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet2.Item.Id})
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.ElementsMatch(tar.Item.HostSetIds, []string{hSet2.Item.Id})
+	assert.ElementsMatch(tar.Item.HostSourceIds, []string{hSet2.Item.Id})
 
-	tar, err = tarClient.RemoveHostSets(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet2.Item.Id})
+	tar, err = tarClient.RemoveHostSources(tc.Context(), tar.Item.Id, tar.Item.Version, []string{hSet2.Item.Id})
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.Empty(tar.Item.HostSetIds)
+	assert.Empty(tar.Item.HostSourceIds)
 }
 
-func defaultCredLibrary(r *credentiallibraries.CredentialLibrary) *targets.CredentialLibrary {
-	return &targets.CredentialLibrary{Id: r.Id, CredentialStoreId: r.CredentialStoreId}
+func defaultCredSource(r *credentiallibraries.CredentialLibrary) *targets.CredentialSource {
+	return &targets.CredentialSource{Id: r.Id, CredentialStoreId: r.CredentialStoreId}
 }
 
-func TestCredentialLibraryASD(t *testing.T) {
+func TestCredentialSourcesASD(t *testing.T) {
 	assert, require := assert.New(t), require.New(t)
 	tc := controller.NewTestController(t, nil)
 	defer tc.Shutdown()
@@ -96,26 +96,26 @@ func TestCredentialLibraryASD(t *testing.T) {
 	tar, err := tarClient.Create(tc.Context(), "tcp", proj.GetPublicId(), targets.WithName("foo"))
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.Empty(tar.Item.ApplicationCredentialLibraryIds)
+	assert.Empty(tar.Item.ApplicationCredentialSourceIds)
 
-	tar, err = tarClient.AddCredentialLibraries(tc.Context(), tar.Item.Id, tar.Item.Version, targets.WithApplicationCredentialLibraryIds([]string{r1.Item.Id}))
+	tar, err = tarClient.AddCredentialSources(tc.Context(), tar.Item.Id, tar.Item.Version, targets.WithApplicationCredentialSourceIds([]string{r1.Item.Id}))
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.ElementsMatch(tar.Item.ApplicationCredentialLibraryIds, []string{r1.Item.Id})
-	assert.ElementsMatch(tar.Item.ApplicationCredentialLibraries, []*targets.CredentialLibrary{defaultCredLibrary(r1.Item)})
+	assert.ElementsMatch(tar.Item.ApplicationCredentialSourceIds, []string{r1.Item.Id})
+	assert.ElementsMatch(tar.Item.ApplicationCredentialSources, []*targets.CredentialSource{defaultCredSource(r1.Item)})
 
-	tar, err = tarClient.SetCredentialLibraries(tc.Context(), tar.Item.Id, tar.Item.Version,
-		targets.WithApplicationCredentialLibraryIds([]string{r2.Item.Id}))
+	tar, err = tarClient.SetCredentialSources(tc.Context(), tar.Item.Id, tar.Item.Version,
+		targets.WithApplicationCredentialSourceIds([]string{r2.Item.Id}))
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.ElementsMatch(tar.Item.ApplicationCredentialLibraryIds, []string{r2.Item.Id})
-	assert.ElementsMatch(tar.Item.ApplicationCredentialLibraries, []*targets.CredentialLibrary{defaultCredLibrary(r2.Item)})
+	assert.ElementsMatch(tar.Item.ApplicationCredentialSourceIds, []string{r2.Item.Id})
+	assert.ElementsMatch(tar.Item.ApplicationCredentialSources, []*targets.CredentialSource{defaultCredSource(r2.Item)})
 
-	tar, err = tarClient.RemoveCredentialLibraries(tc.Context(), tar.Item.Id, tar.Item.Version,
-		targets.WithApplicationCredentialLibraryIds([]string{r2.Item.Id}))
+	tar, err = tarClient.RemoveCredentialSources(tc.Context(), tar.Item.Id, tar.Item.Version,
+		targets.WithApplicationCredentialSourceIds([]string{r2.Item.Id}))
 	require.NoError(err)
 	require.NotNil(tar)
-	assert.Empty(tar.Item.ApplicationCredentialLibraryIds)
+	assert.Empty(tar.Item.ApplicationCredentialSourceIds)
 }
 
 func TestList(t *testing.T) {
