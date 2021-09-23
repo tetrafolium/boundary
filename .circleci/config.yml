@@ -104,6 +104,25 @@ jobs:
     - AUTO_INSTALL_TOOLS: 'YES'
     - BUILDKIT_PROGRESS: plain
     - PRODUCT_REVISION: ''
+  lint-diff:
+    machine:
+      image: ubuntu-2004:202107-02
+    steps:
+    - checkout
+    - run:
+        command: |
+          unset GOPATH
+          make install-go
+          source ~/.bashrc
+          make golangci-lint
+        name: Install Tools
+    - run:
+        command: |
+          source ~/.bashrc
+          make lint-diff || true
+        name: Lint Diff
+        no_output_timeout: 15m
+    working_directory: ~/boundary
   darwin_amd64_package:
     docker:
     - image: docker.mirror.hashicorp.services/circleci/buildpack-deps
@@ -516,6 +535,25 @@ jobs:
         name: Save package cache
         paths:
         - .buildcache/packages/store
+  lint:
+    machine:
+      image: ubuntu-2004:202107-02
+    steps:
+    - checkout
+    - run:
+        command: |
+          unset GOPATH
+          make install-go
+          source ~/.bashrc
+          make golangci-lint
+        name: Install Tools
+    - run:
+        command: |
+          source ~/.bashrc
+          make lint || true
+        name: Lint
+        no_output_timeout: 15m
+    working_directory: ~/boundary
   algolia-index:
     docker:
     - image: docker.mirror.hashicorp.services/node:12
@@ -1571,6 +1609,7 @@ workflows:
   ci:
     jobs:
     - build
+    - lint
     - test-sql-latest
     - test-sql-11-alpine
     - test-sql-12-alpine
@@ -1580,6 +1619,10 @@ workflows:
           branches:
             only:
             - stable-website
+  lint:
+    jobs:
+    - lint
+    - lint-diff
   trigger-merge-to-ent:
     jobs:
     - trigger-merge-to-ent:
