@@ -128,3 +128,11 @@ func (c *HostCatalogSecret) oplogMessage(opType db.OpType) *oplog.Message {
 	}
 	return &msg
 }
+
+func (c *HostCatalogSecret) oplog(op oplog.OpType) oplog.Metadata {
+	metadata := oplog.Metadata{
+		"resource-catalog-id": []string{c.CatalogId},
+		"op-type":             []string{op.String()},
+	}
+	return metadata
+}
