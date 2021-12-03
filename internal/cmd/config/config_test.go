@@ -339,12 +339,13 @@ func TestParsingName(t *testing.T) {
 
 func TestWorkerTagsEnvFile(t *testing.T) {
 	tests := []struct {
-		name          string
-		in            string
-		actualTags    string
-		expWorkerTags map[string][]string
-		expErr        bool
-		expErrStr     string
+		name              string
+		in                string
+		actualTags        string
+		expWorkerTags     map[string][]string
+		expErr            bool
+		expErrStr         string
+		extraAssertionsFn func(t *testing.T, c *Config)
 	}{
 		{
 			name: "worker tags as object",
@@ -414,6 +415,28 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			expErr:        true,
 			expErrStr:     "Error decoding raw worker tags: At 1:9: Unknown token: 1:9 IDENT testval",
 		},
+		{
+			name: "additional configuration in env is ignored",
+			in: `
+			worker {
+				name = "dev-worker"
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			worker {
+				name = "prod-worker"
+				tags {
+					type = ["dev", "local"]
+				}
+			}`,
+			extraAssertionsFn: func(t *testing.T, c *Config) {
+				require.Equal(t, "dev-worker", c.Worker.Name)
+			},
+			expWorkerTags: map[string][]string{
+				"type": {"dev", "local"},
+			},
+			expErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -431,6 +454,9 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			require.NotNil(t, c)
 			require.NotNil(t, c.Worker)
 			require.Equal(t, tt.expWorkerTags, c.Worker.Tags)
+			if tt.extraAssertionsFn != nil {
+				tt.extraAssertionsFn(t, c)
+			}
 		})
 	}
 }

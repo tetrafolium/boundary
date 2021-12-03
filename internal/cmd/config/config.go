@@ -351,13 +351,16 @@ func Parse(d string) (*Config, error) {
 				}
 				result.Worker.TagsRaw = nil
 
-				err = hcl.Decode(result, rawTags)
+				tempConfig := New()
+				err = hcl.Decode(tempConfig, rawTags)
 				if err != nil {
 					return nil, fmt.Errorf("Error decoding raw worker tags: %w", err)
 				}
-				if result.Worker.TagsRaw == nil {
+				if tempConfig.Worker == nil || tempConfig.Worker.TagsRaw == nil {
 					return nil, fmt.Errorf("Failed to coerse worker tags into TagsRaw field")
 				}
+
+				result.Worker.TagsRaw = tempConfig.Worker.TagsRaw
 			}
 
 			switch t := result.Worker.TagsRaw.(type) {
