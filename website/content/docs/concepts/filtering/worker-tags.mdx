@@ -53,6 +53,32 @@ worker {
 
 In this format, it is not possible to have an equal sign be a part of the key.
 
+It is also possible to set `tags` to point to an environment variable or filepath
+in the system, through the `env://` and `file://` URLs, respectively:
+
+```hcl
+worker {
+  name = "web-prod-us-east-1"
+  tags = "env://BOUNDARY_WORKER_TAGS"
+}
+```
+
+```hcl
+worker {
+  name = "web-prod-us-east-1"
+  tags = "file://config/worker/tags.hcl"
+}
+```
+
+Note that within the env var/file, the syntax becomes slightly different to make
+it more appropriate for use in these contexts - Only the keys and values
+need to be specified:
+
+```hcl
+region = ["us-east-1"]
+type = ["prod", "webservers"]
+```
+
 # Target Worker Filtering
 
 Once workers have tags, it is possible to use these tags to control which
