@@ -342,28 +342,23 @@ func Parse(d string) (*Config, error) {
 			switch t := result.Worker.TagsRaw.(type) {
 			// We allow `tags` to be a simple string containing a reference to
 			// an environment variable (env://) / file path (file://).
-			// We then lookup whatever value is within and put it back
-			// into TagsRaw to get parsed.
+			// We then lookup whatever value is within and parse it.
 			case string:
 				rawTags, err := parseutil.ParsePath(t)
 				if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 					return nil, fmt.Errorf("Error parsing worker tags: %w", err)
 				}
-				result.Worker.TagsRaw = nil
 
-				tempConfig := New()
-				err = hcl.Decode(tempConfig, rawTags)
+				var temp []map[string]interface{}
+				err = hcl.Decode(&temp, rawTags)
 				if err != nil {
 					return nil, fmt.Errorf("Error decoding raw worker tags: %w", err)
 				}
-				if tempConfig.Worker == nil || tempConfig.Worker.TagsRaw == nil {
-					return nil, fmt.Errorf("Failed to coerse worker tags into TagsRaw field")
+
+				if err := mapstructure.WeakDecode(temp, &result.Worker.Tags); err != nil {
+					return nil, fmt.Errorf("Error decoding the worker's tags: %w", err)
 				}
 
-				result.Worker.TagsRaw = tempConfig.Worker.TagsRaw
-			}
-
-			switch t := result.Worker.TagsRaw.(type) {
 			// HCL allows multiple labeled blocks with the same name, turning it
 			// into a slice of maps, hence the slice here. This format is the
 			// one that ends up matching the JSON that we use in the expression.

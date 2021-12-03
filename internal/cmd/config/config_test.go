@@ -339,16 +339,43 @@ func TestParsingName(t *testing.T) {
 
 func TestWorkerTagsEnvFile(t *testing.T) {
 	tests := []struct {
-		name              string
-		in                string
-		actualTags        string
-		expWorkerTags     map[string][]string
-		expErr            bool
-		expErrStr         string
-		extraAssertionsFn func(t *testing.T, c *Config)
+		name          string
+		in            string
+		actualTags    string
+		expWorkerTags map[string][]string
+		expErr        bool
+		expErrStr     string
 	}{
 		{
-			name: "worker tags as object",
+			name: "one tag key",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `type = ["dev", "local"]`,
+			expWorkerTags: map[string][]string{
+				"type": {"dev", "local"},
+			},
+			expErr: false,
+		},
+		{
+			name: "multiple tag keys",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			type = ["dev", "local"]
+			typetwo = ["devtwo", "localtwo"]
+			`,
+			expWorkerTags: map[string][]string{
+				"type":    {"dev", "local"},
+				"typetwo": {"devtwo", "localtwo"},
+			},
+			expErr: false,
+		},
+		{
+			name: "no clean mapping to internal structures",
 			in: `
 			worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
@@ -356,86 +383,21 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			actualTags: `
 			worker {
 				tags {
-					type = ["dev", "local"]
+					type = "indeed"
 				}
-			}`,
-			expWorkerTags: map[string][]string{
-				"type": {"dev", "local"},
-			},
-			expErr: false,
-		},
-		{
-			name: "worker tags as key=value",
-			in: `
-			worker {
-				tags = "env://BOUNDARY_WORKER_TAGS"
-			}`,
-			actualTags: `
-			worker {
-				tags = ["type=dev", "type=local"]
-			}`,
-			expWorkerTags: map[string][]string{
-				"type": {"dev", "local"},
-			},
-			expErr: false,
-		},
-		{
-			name: "file that doesn't exist",
-			in: `
-			worker {
-				tags = "file://badfile_4j1ok2kcmvio3i"
-			}`,
-			expWorkerTags: nil,
-			expErr:        true,
-			expErrStr:     "Error parsing worker tags: error reading file at file://badfile_4j1ok2kcmvio3i: open badfile_4j1ok2kcmvio3i: no such file or directory",
-		},
-		{
-			name: "valid HCL but bad path",
-			in: `
-			worker {
-				tags = "env://BOUNDARY_WORKER_TAGS"
-			}`,
-			actualTags: `
-			tags {
-				type = ["dev", "local"]
 			}
 			`,
-			expWorkerTags: nil,
-			expErr:        true,
-			expErrStr:     "Failed to coerse worker tags into TagsRaw field",
+			expErr:    true,
+			expErrStr: "Error decoding the worker's tags: 1 error(s) decoding:\n\n* '[0][worker][0]' expected type 'string', got unconvertible type 'map[string]interface {}', value: 'map[tags:[map[type:indeed]]]'",
 		},
 		{
-			name: "bad env var value",
-			in: `
-			worker {
+			name: "not HCL",
+			in: `worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
-			actualTags:    `testkey=testval`,
-			expWorkerTags: nil,
-			expErr:        true,
-			expErrStr:     "Error decoding raw worker tags: At 1:9: Unknown token: 1:9 IDENT testval",
-		},
-		{
-			name: "additional configuration in env is ignored",
-			in: `
-			worker {
-				name = "dev-worker"
-				tags = "env://BOUNDARY_WORKER_TAGS"
-			}`,
-			actualTags: `
-			worker {
-				name = "prod-worker"
-				tags {
-					type = ["dev", "local"]
-				}
-			}`,
-			extraAssertionsFn: func(t *testing.T, c *Config) {
-				require.Equal(t, "dev-worker", c.Worker.Name)
-			},
-			expWorkerTags: map[string][]string{
-				"type": {"dev", "local"},
-			},
-			expErr: false,
+			actualTags: `not_hcl`,
+			expErr:     true,
+			expErrStr:  "Error decoding raw worker tags: At 1:9: key 'not_hcl' expected start of object ('{') or assignment ('=')",
 		},
 	}
 
@@ -454,9 +416,6 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			require.NotNil(t, c)
 			require.NotNil(t, c.Worker)
 			require.Equal(t, tt.expWorkerTags, c.Worker.Tags)
-			if tt.extraAssertionsFn != nil {
-				tt.extraAssertionsFn(t, c)
-			}
 		})
 	}
 }
