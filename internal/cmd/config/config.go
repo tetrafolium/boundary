@@ -337,7 +337,29 @@ func Parse(d string) (*Config, error) {
 		if !strutil.Printable(result.Worker.Name) {
 			return nil, errors.New("Worker name contains non-printable characters")
 		}
+
 		if result.Worker.TagsRaw != nil {
+			switch t := result.Worker.TagsRaw.(type) {
+			// We allow `tags` to be a simple string containing a reference to
+			// an environment variable (env://) / file path (file://).
+			// We then lookup whatever value is within and put it back
+			// into TagsRaw to get parsed.
+			case string:
+				rawTags, err := parseutil.ParsePath(t)
+				if err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
+					return nil, fmt.Errorf("Error parsing worker tags: %w", err)
+				}
+				result.Worker.TagsRaw = nil
+
+				err = hcl.Decode(result, rawTags)
+				if err != nil {
+					return nil, fmt.Errorf("Error decoding raw worker tags: %w", err)
+				}
+				if result.Worker.TagsRaw == nil {
+					return nil, fmt.Errorf("Failed to coerse worker tags into TagsRaw field")
+				}
+			}
+
 			switch t := result.Worker.TagsRaw.(type) {
 			// HCL allows multiple labeled blocks with the same name, turning it
 			// into a slice of maps, hence the slice here. This format is the
@@ -374,6 +396,7 @@ func Parse(d string) (*Config, error) {
 				}
 			}
 		}
+
 		for k, v := range result.Worker.Tags {
 			if k != strings.ToLower(k) {
 				return nil, fmt.Errorf("Tag key %q is not all lower-case letters", k)

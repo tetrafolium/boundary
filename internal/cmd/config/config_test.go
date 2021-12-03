@@ -337,6 +337,104 @@ func TestParsingName(t *testing.T) {
 	}
 }
 
+func TestWorkerTagsEnvFile(t *testing.T) {
+	tests := []struct {
+		name          string
+		in            string
+		actualTags    string
+		expWorkerTags map[string][]string
+		expErr        bool
+		expErrStr     string
+	}{
+		{
+			name: "worker tags as object",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			worker {
+				tags {
+					type = ["dev", "local"]
+				}
+			}`,
+			expWorkerTags: map[string][]string{
+				"type": {"dev", "local"},
+			},
+			expErr: false,
+		},
+		{
+			name: "worker tags as key=value",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			worker {
+				tags = ["type=dev", "type=local"]
+			}`,
+			expWorkerTags: map[string][]string{
+				"type": {"dev", "local"},
+			},
+			expErr: false,
+		},
+		{
+			name: "file that doesn't exist",
+			in: `
+			worker {
+				tags = "file://badfile_4j1ok2kcmvio3i"
+			}`,
+			expWorkerTags: nil,
+			expErr:        true,
+			expErrStr:     "Error parsing worker tags: error reading file at file://badfile_4j1ok2kcmvio3i: open badfile_4j1ok2kcmvio3i: no such file or directory",
+		},
+		{
+			name: "valid HCL but bad path",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			tags {
+				type = ["dev", "local"]
+			}
+			`,
+			expWorkerTags: nil,
+			expErr:        true,
+			expErrStr:     "Failed to coerse worker tags into TagsRaw field",
+		},
+		{
+			name: "bad env var value",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags:    `testkey=testval`,
+			expWorkerTags: nil,
+			expErr:        true,
+			expErrStr:     "Error decoding raw worker tags: At 1:9: Unknown token: 1:9 IDENT testval",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BOUNDARY_WORKER_TAGS", tt.actualTags)
+
+			c, err := Parse(tt.in)
+			if tt.expErr {
+				require.EqualError(t, err, tt.expErrStr)
+				require.Nil(t, c)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.NotNil(t, c.Worker)
+			require.Equal(t, tt.expWorkerTags, c.Worker.Tags)
+		})
+	}
+}
+
 func TestController_EventingConfig(t *testing.T) {
 	t.Parallel()
 
