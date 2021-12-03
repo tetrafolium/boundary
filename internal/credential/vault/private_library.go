@@ -52,6 +52,73 @@ func convert(ctx context.Context, bc *baseCred) (dynamicCred, error) {
 	return bc, nil
 }
 
+type usrPassFunc func(bc *baseCred, usernameAttr, passwordAttr string) (string, string)
+
+// defaultUsrPass looks for the usernameAttr and passwordAttr in the 'secretData'
+// field of the base cred.
+func defaultUsrPass(bc *baseCred, usernameAttr, passwordAttr string) (username string, password string) {
+	if u, ok := bc.secretData[usernameAttr]; ok {
+		if u, ok := u.(string); ok {
+			username = u
+		}
+	}
+	if p, ok := bc.secretData[passwordAttr]; ok {
+		if p, ok := p.(string); ok {
+			password = p
+		}
+	}
+
+	return
+}
+
+// kv2UsrPass looks for the the usernameAttr and passwordAttr in the embedded
+// 'data' field within the 'secretData' field of the base cred.
+//
+// Additionaly it validates the credential is in the expected KV-v2 format:
+// {
+// 	"data": {},
+//	"metadata: {}
+// }
+func kv2UsrPass(bc *baseCred, usernameAttr, passwordAttr string) (username string, password string) {
+	var data, metadata map[string]interface{}
+	for k, v := range bc.secretData {
+		switch k {
+		case "data":
+			var ok bool
+			if data, ok = v.(map[string]interface{}); !ok {
+				// data field should be of type map[string]interface{} in KV-v2
+				return
+			}
+		case "metadata":
+			var ok bool
+			if metadata, ok = v.(map[string]interface{}); !ok {
+				// metadata field should be of type map[string]interface{} in KV-v2
+				return
+			}
+		default:
+			// secretData contains a non valid KV-v2 top level field
+			return
+		}
+	}
+	if data == nil || metadata == nil {
+		// missing required KV-v2 field
+		return
+	}
+
+	if u, ok := data[usernameAttr]; ok {
+		if u, ok := u.(string); ok {
+			username = u
+		}
+	}
+	if p, ok := data[passwordAttr]; ok {
+		if p, ok := p.(string); ok {
+			password = p
+		}
+	}
+
+	return
+}
+
 func baseToUsrPass(ctx context.Context, bc *baseCred) (*usrPassCred, error) {
 	switch {
 	case bc == nil:
@@ -70,27 +137,19 @@ func baseToUsrPass(ctx context.Context, bc *baseCred) (*usrPassCred, error) {
 		pAttr = "password"
 	}
 
-	var username, password string
-	if u, ok := bc.secretData[uAttr]; ok {
-		if u, ok := u.(string); ok {
-			username = u
-		}
-	}
-	if p, ok := bc.secretData[pAttr]; ok {
-		if p, ok := p.(string); ok {
-			password = p
+	for _, f := range []usrPassFunc{defaultUsrPass, kv2UsrPass} {
+		username, password := f(bc, uAttr, pAttr)
+		if username != "" && password != "" {
+			// got valid username and password from secret
+			return &usrPassCred{
+				baseCred: bc,
+				username: username,
+				password: credential.Password(password),
+			}, nil
 		}
 	}
 
-	if username == "" || password == "" {
-		return nil, errors.E(ctx, errors.WithCode(errors.VaultInvalidCredentialMapping))
-	}
-
-	return &usrPassCred{
-		baseCred: bc,
-		username: username,
-		password: credential.Password(password),
-	}, nil
+	return nil, errors.E(ctx, errors.WithCode(errors.VaultInvalidCredentialMapping))
 }
 
 var _ credential.Library = (*privateLibrary)(nil)
