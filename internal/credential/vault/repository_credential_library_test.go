@@ -1149,36 +1149,35 @@ func TestRepository_UpdateCredentialLibrary(t *testing.T) {
 			underlyingDB, err := conn.SqlDB(ctx)
 			require.NoError(err)
 			dbassert := dbassert.New(t, underlyingDB)
-			if tt.want.Name == "" {
+
+			switch tt.want.Name {
+			case "":
 				dbassert.IsNull(got, "name")
-				return
+			default:
+				assert.Equal(tt.want.Name, got.Name)
 			}
-			assert.Equal(tt.want.Name, got.Name)
-			if tt.want.Description == "" {
+
+			switch tt.want.Description {
+			case "":
 				dbassert.IsNull(got, "description")
-				return
+			default:
+				assert.Equal(tt.want.Description, got.Description)
 			}
-			assert.Equal(tt.want.Description, got.Description)
+
 			if tt.wantCount > 0 {
 				assert.NoError(db.TestVerifyOplog(t, rw, got.GetPublicId(), db.WithOperation(oplog.OpType_OP_TYPE_UPDATE), db.WithCreateNotBefore(10*time.Second)))
 			}
 
-			if tt.orig.MappingOverride != nil {
-				require.NotNil(got.MappingOverride)
-				assert.IsType(tt.want.MappingOverride, got.MappingOverride)
-				switch w := tt.want.MappingOverride.(type) {
-				case *UserPasswordOverride:
-					g, ok := got.MappingOverride.(*UserPasswordOverride)
-					require.True(ok)
-					assert.Equal(w.UsernameAttribute, g.UsernameAttribute)
-					assert.Equal(w.PasswordAttribute, g.PasswordAttribute)
-				default:
-					assert.Fail("Unknown mapping override")
-				}
-
-				// verify it was persisted in the database
-				override := allocUserPasswordOverride()
-				assert.NoError(rw.LookupWhere(ctx, &override, "library_id = ?", got.GetPublicId()))
+			switch w := tt.want.MappingOverride.(type) {
+			case nil:
+				assert.Nil(got.MappingOverride)
+			case *UserPasswordOverride:
+				g, ok := got.MappingOverride.(*UserPasswordOverride)
+				require.True(ok)
+				assert.Equal(w.UsernameAttribute, g.UsernameAttribute)
+				assert.Equal(w.PasswordAttribute, g.PasswordAttribute)
+			default:
+				assert.Fail("Unknown mapping override")
 			}
 		})
 	}
