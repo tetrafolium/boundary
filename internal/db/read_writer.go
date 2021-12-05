@@ -282,7 +282,7 @@ func (rw *Db) generateOplogBeforeAfterOpts(ctx context.Context, i interface{}, o
 		if _, err := validateOplogArgs(ctx, items[0], opts); err != nil {
 			return nil, nil, errors.Wrap(ctx, err, op, errors.WithMsg("oplog validation failed"))
 		}
-	default:
+	case withOplog:
 		if _, err := validateOplogArgs(ctx, i, opts); err != nil {
 			return nil, nil, errors.Wrap(ctx, err, op, errors.WithMsg("oplog validation failed"))
 		}
@@ -330,6 +330,9 @@ func (rw *Db) generateOplogBeforeAfterOpts(ctx context.Context, i interface{}, o
 			return nil
 		}
 	case opts.newOplogMsg != nil:
+		if isSlice {
+			return nil, nil, errors.New(ctx, errors.InvalidParameter, op, "new oplog msg (singular) is not a supported option")
+		}
 		afterFn = func(i interface{}, rowsAffected int) error {
 			switch {
 			case onConflictDoNothing && rowsAffected == 0:
@@ -386,27 +389,11 @@ func (rw *Db) Create(ctx context.Context, i interface{}, opt ...Option) error {
 	if isNil(i) {
 		return errors.New(ctx, errors.InvalidParameter, op, "missing interface")
 	}
-	opts := GetOpts(opt...)
-	withBeforeWrite, withAfterWrite, err := rw.generateOplogBeforeAfterOpts(ctx, i, CreateOp, opts)
+	dbwOpts, err := getDbwOptions(ctx, rw, i, CreateOp, opt...)
 	if err != nil {
 		return errors.Wrap(ctx, err, op)
 	}
-	withOnConflict, err := rw.generateWithOnConflict(ctx, opts)
-	if err != nil {
-		return errors.Wrap(ctx, err, op)
-	}
-
-	if err := dbw.New(rw.underlying.wrapped).Create(ctx, i,
-		dbw.WithSkipVetForWrite(opts.withSkipVetForWrite),
-		dbw.WithAfterWrite(withAfterWrite),
-		dbw.WithBeforeWrite(withBeforeWrite),
-		dbw.WithOnConflict(withOnConflict),
-		dbw.WithVersion(opts.WithVersion),
-		dbw.WithWhere(opts.withWhereClause, opts.withWhereClauseArgs...),
-		dbw.WithVersion(opts.WithVersion),
-		dbw.WithReturnRowsAffected(opts.withRowsAffected),
-		dbw.WithDebug(opts.withDebug),
-	); err != nil {
+	if err := dbw.New(rw.underlying.wrapped).Create(ctx, i, dbwOpts...); err != nil {
 		return errors.Wrap(ctx, err, op)
 	}
 	return nil
@@ -428,30 +415,11 @@ func (rw *Db) CreateItems(ctx context.Context, createItems []interface{}, opt ..
 	if opts.withLookup {
 		return errors.New(ctx, errors.InvalidParameter, op, "with lookup not a supported option")
 	}
-	if opts.newOplogMsg != nil {
-		return errors.New(ctx, errors.InvalidParameter, op, "new oplog msg (singular) is not a supported option")
-	}
-	if opts.withOplog && opts.newOplogMsgs != nil {
-		return errors.New(ctx, errors.InvalidParameter, op, "both WithOplog and NewOplogMsgs options have been specified")
-	}
-	withBeforeWrite, withAfterWrite, err := rw.generateOplogBeforeAfterOpts(ctx, createItems, CreateOp, opts)
+	dbwOpts, err := getDbwOptions(ctx, rw, createItems, CreateItemsOp, opt...)
 	if err != nil {
 		return errors.Wrap(ctx, err, op)
 	}
-	withOnConflict, err := rw.generateWithOnConflict(ctx, opts)
-	if err != nil {
-		return errors.Wrap(ctx, err, op)
-	}
-	if err := dbw.New(rw.underlying.wrapped).CreateItems(ctx, createItems,
-		dbw.WithBeforeWrite(withBeforeWrite),
-		dbw.WithAfterWrite(withAfterWrite),
-		dbw.WithOnConflict(withOnConflict),
-		dbw.WithReturnRowsAffected(opts.withRowsAffected),
-		dbw.WithDebug(opts.withDebug),
-		dbw.WithVersion(opts.WithVersion),
-		dbw.WithWhere(opts.withWhereClause, opts.withWhereClauseArgs...),
-		dbw.WithSkipVetForWrite(opts.withSkipVetForWrite),
-	); err != nil {
+	if err := dbw.New(rw.underlying.wrapped).CreateItems(ctx, createItems, dbwOpts...); err != nil {
 		return errors.Wrap(ctx, err, op, errors.WithoutEvent())
 	}
 	return nil

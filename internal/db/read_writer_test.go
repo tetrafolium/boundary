@@ -763,7 +763,7 @@ func TestDb_Create(t *testing.T) {
 			),
 		)
 		require.Error(err)
-		assert.Contains(err.Error(), "db.Create: oplog validation failed: db.validateOplogArgs: missing wrapper: parameter violation: error #100")
+		assert.Contains(err.Error(), "oplog validation failed: db.validateOplogArgs: missing wrapper: parameter violation: error #100")
 	})
 	t.Run("no-metadata-WithOplog", func(t *testing.T) {
 		assert, require := assert.New(t), require.New(t)
@@ -782,7 +782,7 @@ func TestDb_Create(t *testing.T) {
 			),
 		)
 		require.Error(err)
-		assert.Contains(err.Error(), "db.Create: oplog validation failed: db.validateOplogArgs: missing metadata: parameter violation: error #100")
+		assert.Contains(err.Error(), "oplog validation failed: db.validateOplogArgs: missing metadata: parameter violation: error #100")
 	})
 	t.Run("nil-tx", func(t *testing.T) {
 		assert, require := assert.New(t), require.New(t)
