@@ -157,9 +157,10 @@ type Worker struct {
 
 	// We use a raw interface for parsing so that people can use JSON-like
 	// syntax that maps directly to the filter input or possibly more familiar
-	// key=value syntax. This is trued up in the Parse function below.
-	TagsRaw interface{}         `hcl:"tags"`
+	// key=value syntax, as well as accepting a string denoting an env or file
+	// pointer. This is trued up in the Parse function below.
 	Tags    map[string][]string `hcl:"-"`
+	TagsRaw interface{}         `hcl:"tags"`
 
 	// StatusGracePeriod represents the period of time (as a duration) that the
 	// worker will wait before disconnecting connections if it cannot make a

@@ -375,6 +375,24 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			expErr: false,
 		},
 		{
+			name: "json tags",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			actualTags: `
+			{
+				"type": ["dev", "local"],
+				"typetwo": ["devtwo", "localtwo"]
+			}
+			`,
+			expWorkerTags: map[string][]string{
+				"type":    {"dev", "local"},
+				"typetwo": {"devtwo", "localtwo"},
+			},
+			expErr: false,
+		},
+		{
 			name: "no clean mapping to internal structures",
 			in: `
 			worker {
