@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -364,6 +365,32 @@ func Parse(d string) (*Config, error) {
 			// into a slice of maps, hence the slice here. This format is the
 			// one that ends up matching the JSON that we use in the expression.
 			case []map[string]interface{}:
+				for _, m := range t {
+					for k, v := range m {
+						// We allow the user to pass in only the keys in HCL, and
+						// then set the values to point to an env var/file.
+						valStr, ok := v.(string)
+						if !ok {
+							continue
+						}
+
+						parsed, err := parseutil.ParsePath(valStr)
+						if err != nil {
+							return nil, fmt.Errorf("Error parsing worker tag values: %w", err)
+						}
+						if valStr == parsed { // Nothing was found
+							continue
+						}
+
+						var tags []string
+						err = json.Unmarshal([]byte(parsed), &tags)
+						if err != nil {
+							return nil, fmt.Errorf("Error unmarshalling env var/file contents: %w", err)
+						}
+						m[k] = tags
+					}
+				}
+
 				if err := mapstructure.WeakDecode(t, &result.Worker.Tags); err != nil {
 					return nil, fmt.Errorf("Error decoding the worker's %q section: %w", "tags", err)
 				}

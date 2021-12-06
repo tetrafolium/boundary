@@ -337,21 +337,95 @@ func TestParsingName(t *testing.T) {
 	}
 }
 
-func TestWorkerTagsEnvFile(t *testing.T) {
+func TestWorkerTags(t *testing.T) {
+	defaultStateFn := func(t *testing.T, tags string) {
+		t.Setenv("BOUNDARY_WORKER_TAGS", tags)
+	}
 	tests := []struct {
 		name          string
 		in            string
+		stateFn       func(t *testing.T, tags string)
 		actualTags    string
 		expWorkerTags map[string][]string
 		expErr        bool
 		expErrStr     string
 	}{
 		{
+			name: "tags in HCL",
+			in: `
+			worker {
+				tags {
+					type = ["dev", "local"]
+					typetwo = "devtwo"
+				}
+			}`,
+			expWorkerTags: map[string][]string{
+				"type":    {"dev", "local"},
+				"typetwo": {"devtwo"},
+			},
+			expErr: false,
+		},
+		{
+			name: "tags in HCL key=value",
+			in: `
+			worker {
+				tags = ["type=dev", "type=local", "typetwo=devtwo"]
+			}
+			`,
+			expWorkerTags: map[string][]string{
+				"type":    {"dev", "local"},
+				"typetwo": {"devtwo"},
+			},
+			expErr: false,
+		},
+		{
+			name: "no tags",
+			in: `
+			worker {
+				name = "testworker"
+			}
+			`,
+			expWorkerTags: nil,
+			expErr:        false,
+		},
+		{
+			name: "empty tags",
+			in: `
+			worker {
+				name = "testworker"
+				tags = {}
+			}
+			`,
+			expWorkerTags: map[string][]string{},
+			expErr:        false,
+		},
+		{
+			name: "empty tags 2",
+			in: `
+			worker {
+				name = "testworker"
+				tags = []
+			}
+			`,
+			expWorkerTags: map[string][]string{},
+			expErr:        false,
+		},
+		{
+			name: "empty env var",
+			in: `
+			worker {
+				tags = "env://BOUNDARY_WORKER_TAGS"
+			}`,
+			expWorkerTags: map[string][]string{},
+			expErr:        false,
+		},
+		{
 			name: "one tag key",
 			in: `
 			worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
+			stateFn:    defaultStateFn,
 			actualTags: `type = ["dev", "local"]`,
 			expWorkerTags: map[string][]string{
 				"type": {"dev", "local"},
@@ -364,6 +438,7 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
+			stateFn: defaultStateFn,
 			actualTags: `
 			type = ["dev", "local"]
 			typetwo = ["devtwo", "localtwo"]
@@ -375,11 +450,12 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			expErr: false,
 		},
 		{
-			name: "json tags",
+			name: "json tags - entire tags block",
 			in: `
 			worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
+			stateFn: defaultStateFn,
 			actualTags: `
 			{
 				"type": ["dev", "local"],
@@ -393,11 +469,52 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			expErr: false,
 		},
 		{
+			name: "json tags - keys specified in the HCL file, values point to env/file",
+			in: `
+			worker {
+				tags = {
+					type = "env://BOUNDARY_WORKER_TAGS"
+					typetwo = "env://BOUNDARY_WORKER_TAGS_TWO"
+				}
+			}`,
+			stateFn: func(t *testing.T, tags string) {
+				defaultStateFn(t, tags)
+				t.Setenv("BOUNDARY_WORKER_TAGS_TWO", `["devtwo", "localtwo"]`)
+			},
+			actualTags: `["dev","local"]`,
+			expWorkerTags: map[string][]string{
+				"type":    {"dev", "local"},
+				"typetwo": {"devtwo", "localtwo"},
+			},
+			expErr: false,
+		},
+		{
+			name: "bad json tags",
+			in: `
+			worker {
+				tags = {
+					type = "env://BOUNDARY_WORKER_TAGS"
+					typetwo = "env://BOUNDARY_WORKER_TAGS"
+				}
+			}`,
+			stateFn: defaultStateFn,
+			actualTags: `
+			{
+				"type": ["dev", "local"],
+				"typetwo": ["devtwo", "localtwo"]
+			}
+			`,
+			expWorkerTags: nil,
+			expErr:        true,
+			expErrStr:     "Error unmarshalling env var/file contents: json: cannot unmarshal object into Go value of type []string",
+		},
+		{
 			name: "no clean mapping to internal structures",
 			in: `
 			worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
+			stateFn: defaultStateFn,
 			actualTags: `
 			worker {
 				tags {
@@ -413,6 +530,7 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 			in: `worker {
 				tags = "env://BOUNDARY_WORKER_TAGS"
 			}`,
+			stateFn:    defaultStateFn,
 			actualTags: `not_hcl`,
 			expErr:     true,
 			expErrStr:  "Error decoding raw worker tags: At 1:9: key 'not_hcl' expected start of object ('{') or assignment ('=')",
@@ -421,7 +539,9 @@ func TestWorkerTagsEnvFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("BOUNDARY_WORKER_TAGS", tt.actualTags)
+			if tt.stateFn != nil {
+				tt.stateFn(t, tt.actualTags)
+			}
 
 			c, err := Parse(tt.in)
 			if tt.expErr {
