@@ -72,7 +72,14 @@ worker {
 
 Note that within the env var/file, the syntax becomes slightly different to make
 it more appropriate for use in these contexts - Only the keys and values
-need to be specified:
+need to be specified, in JSON or HCL format:
+
+```json
+{
+  "region": ["us-east-1"],
+  "type": ["prod", "webservers"]
+}
+```
 
 ```hcl
 region = ["us-east-1"]
