@@ -1,0 +1,7 @@
+inspecode:
+  go-test:
+    auto-select: true
+    options:
+      -cover:
+    thresholds:
+      num-issues: 0
